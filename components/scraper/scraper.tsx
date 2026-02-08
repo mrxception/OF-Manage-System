@@ -13,24 +13,42 @@ import KeyInsightsSection from "./key-insights-section"
 import KPI from "./kpi-section"
 import PdfSection from "./pdf-section"
 
-type RawPostRow = { Subreddit: string; Upvotes: number; Comments: number; Subreddit_Subscribers?: number; LastDate: string | Date }
-type SavedItem = { id: number; username: string; scraped_at: string }
+type ModelOption = { id: string; name: string; username: string }
+type ManagerOption = { id: string; name: string; models: ModelOption[] }
 
 export default function Scraper() {
-  const [showSecondUsername, setShowSecondUsername] = useState(false)
-  const [username2, setUsername2] = useState("")
+  const managers: ManagerOption[] = [
+    {
+      id: "mgr_1",
+      name: "Manager A",
+      models: [
+        { id: "mdl_1", name: "Model 1", username: "spez" },
+        { id: "mdl_2", name: "Model 2", username: "reddit" },
+      ],
+    },
+    {
+      id: "mgr_2",
+      name: "Manager B",
+      models: [{ id: "mdl_3", name: "Model 3", username: "example_user" }],
+    },
+  ]
+
+  const [compareEnabled, setCompareEnabled] = useState(false)
+
+  const [managerId, setManagerId] = useState("")
+  const [modelId, setModelId] = useState("")
+
+  const [managerId2, setManagerId2] = useState("")
+  const [modelId2, setModelId2] = useState("")
+
   const [runUsername2, setRunUsername2] = useState("")
-  const [username, setUsername] = useState("")
   const [runUsername, setRunUsername] = useState("")
-  const [dateRange, setDateRange] = useState("all")
-  const [limit, setLimit] = useState(100)
+
+  const dateRange = "all"
+  const limit = 100
   const [runLimit, setRunLimit] = useState<number>(100)
-  const [inclSubs, setInclSubs] = useState(false)
-  const [inclVote, setInclVote] = useState(false)
-  const [inclComm, setInclComm] = useState(false)
-  const [inclPER, setInclPER] = useState(false)
-  const [inclMed, setInclMed] = useState(false)
-  const [runDefaults, setRunDefaults] = useState({ inclVote: false, inclComm: false, inclMed: false, inclSubs: false, inclPER: false })
+
+  const runDefaults = { inclVote: false, inclComm: false, inclMed: false, inclSubs: true, inclPER: false }
   const [averageMetricKey, setAverageMetricKey] = React.useState<"avg" | "median">("avg")
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState("Idle")
@@ -40,11 +58,10 @@ export default function Scraper() {
   const [rawRows, setRawRows] = useState<any[] | null>(null)
   const [rawRows2, setRawRows2] = useState<any[] | null>(null)
   const [spanDays, setSpanDays] = useState<number | null>(null)
-  const [saved, setSaved] = useState<SavedItem[]>([])
   const sidRef = useRef(globalThis.crypto?.randomUUID?.() ? crypto.randomUUID() : String(Math.random()))
   const progRef = useRef<HTMLElement>(null)
-  const [timeSeries, setTimeSeries] = useState<{ upvotes: Array<{ date: string;[k: string]: number | string | null }>; comments: Array<{ date: string;[k: string]: number | string | null }>; subreddits: string[] } | null>(null)
-  const [timeSeries2, setTimeSeries2] = useState<{ upvotes: Array<{ date: string;[k: string]: number | string | null }>; comments: Array<{ date: string;[k: string]: number | string | null }>; subreddits: string[] } | null>(null)
+  const [timeSeries, setTimeSeries] = useState<{ upvotes: Array<{ date: string; [k: string]: number | string | null }>; comments: Array<{ date: string; [k: string]: number | string | null }>; subreddits: string[] } | null>(null)
+  const [timeSeries2, setTimeSeries2] = useState<{ upvotes: Array<{ date: string; [k: string]: number | string | null }>; comments: Array<{ date: string; [k: string]: number | string | null }>; subreddits: string[] } | null>(null)
   const [insights, setInsights] = useState<string[]>([])
   type AxisDomain = [number, number] | ["auto", number] | [number, "auto"] | ["auto", "auto"]
   type AxisChoice = "Total_Posts" | "Average_Upvotes" | "Avg_Comments_Per_Post" | "Total_Upvotes" | "Total_Comments" | "Subreddit_Subscribers"
@@ -65,34 +82,31 @@ export default function Scraper() {
     }
   }
 
+  function getSelectedModel(mgrId: string, mdlId: string): ModelOption | null {
+    const mgr = managers.find(m => m.id === mgrId)
+    if (!mgr) return null
+    const mdl = mgr.models.find(mm => mm.id === mdlId)
+    return mdl || null
+  }
+
   useEffect(() => {
     const cleanup = () => {
-      fetch(`/api/scrape?sid=${encodeURIComponent(sidRef.current)}`, { method: "DELETE", keepalive: true }).catch(() => { })
+      fetch(`/api/scrape?sid=${encodeURIComponent(sidRef.current)}`, { method: "DELETE", keepalive: true }).catch(() => {})
     }
     window.addEventListener("beforeunload", cleanup)
     return () => cleanup()
   }, [])
 
-  useEffect(() => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null
-    if (!token) return
-    fetch("/api/usage", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ feature: "scraper", op: "list_saved" }),
-    })
-      .then(r => (r.ok ? r.json() : Promise.resolve({ items: [] })))
-      .then(j => setSaved(Array.isArray(j?.items) ? j.items : []))
-      .catch(() => { })
-  }, [])
-
-  async function downloadExport(kind: "data" | "raw", target: "u1" | "u2", opts: { inclVote: boolean; inclComm: boolean; inclMed: boolean; inclSubs: boolean; inclPER: boolean }) {
+  async function downloadExport(
+    kind: "data" | "raw",
+    target: "u1" | "u2",
+    opts: { inclVote: boolean; inclComm: boolean; inclMed: boolean; inclSubs: boolean; inclPER: boolean }
+  ) {
     try {
       const payload: any = {
         kind,
         username: target === "u2" ? runUsername2 : runUsername,
-        inclSubs: opts.inclSubs ? 1 : 0,
+        inclSubs: 1,
         inclVote: opts.inclVote ? 1 : 0,
         inclComm: opts.inclComm ? 1 : 0,
         inclPER: opts.inclPER ? 1 : 0,
@@ -131,7 +145,7 @@ export default function Scraper() {
     try {
       const j = await res.json()
       if (j?.error) reason = j.error
-    } catch { }
+    } catch {}
     return reason || `HTTP ${res.status}`
   }
 
@@ -145,98 +159,47 @@ export default function Scraper() {
     setSpanDays(typeof p.datasetSpanDays === "number" && isFinite(p.datasetSpanDays) ? p.datasetSpanDays : null)
   }
 
-  async function handleLoadSaved(u: string) {
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null
-    if (!token) return
-    setStatus("Loading saved data…")
-    const r = await fetch("/api/usage", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ feature: "scraper", op: "load_saved", username: u }),
-    })
-    if (!r.ok) {
-      setStatus(await readServerError(r))
-      return
-    }
-    const j = await r.json()
-    const pRaw = j?.payload
-    const p = typeof pRaw === "string" ? JSON.parse(pRaw) : pRaw || {}
-    applyPayload(p)
-    setRunUsername(u)
-    setUsername(u)
-    setRunUsername2(p.username2 || "")
-    setUsername2(p.username2 || "")
-    setShowSecondUsername(!!p.username2)
-    setRunLimit(typeof p.limit === "number" ? p.limit : 100)
-    setRunDefaults(p.defaults || { inclVote: false, inclComm: false, inclMed: false, inclSubs: false, inclPER: false })
-    setStatus("Loaded from saved session.")
-  }
-
-  async function handleCompareSaved(u: string) {
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null
-    if (!token) return
-    setStatus(`Loading ${u} as comparison…`)
-    const r = await fetch("/api/usage", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ feature: "scraper", op: "load_saved", username: u }),
-    })
-    if (!r.ok) {
-      setStatus(await readServerError(r))
-      return
-    }
-    const j = await r.json()
-    const pRaw = j?.payload
-    const p = typeof pRaw === "string" ? JSON.parse(pRaw) : pRaw || {}
-
-    setPreview2(Array.isArray(p.preview) ? p.preview : null)
-    setRawRows2(Array.isArray(p.rawRows) ? p.rawRows : null)
-    setTimeSeries2(p.timeSeries ?? null)
-    setRunUsername2(u)
-    setUsername2(u)
-    setShowSecondUsername(true)
-    setStatus(`Loaded ${u} as comparison.`)
-  }
-
-  async function handleDeleteSaved(u: string) {
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null
-    if (!token) return
-    const r = await fetch("/api/usage", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ feature: "scraper", op: "delete_saved", username: u }),
-    })
-    if (r.ok) {
-      setSaved(prev => prev.filter(x => x.username !== u))
-    }
-  }
-
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const frozen1 = (username || "").trim()
-    const frozen2 = showSecondUsername ? (username2 || "").trim() : ""
+
+    const m1 = getSelectedModel(managerId, modelId)
+    const m2 = compareEnabled ? getSelectedModel(managerId2, modelId2) : null
+
+    if (!m1) {
+      setStatus("Please select a manager and model.")
+      setMsg({ type: "err", text: "Please select a manager and model." })
+      return
+    }
+    if (compareEnabled && !m2) {
+      setStatus("Please select the comparison manager and model.")
+      setMsg({ type: "err", text: "Please select the comparison manager and model." })
+      return
+    }
+
+    const frozen1 = (m1.username || "").trim()
+    const frozen2 = compareEnabled ? (m2?.username || "").trim() : ""
+
     setRunUsername(frozen1)
     setRunUsername2(frozen2)
     setRunLimit(limit)
-    setRunDefaults({ inclVote, inclComm, inclMed, inclSubs, inclPER: inclSubs ? inclPER : false })
     setMsg(null)
+
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null
     if (!token) {
       setStatus("Please log in to use this feature.")
       setMsg({ type: "err", text: "Please log in to use this feature." })
       return
     }
+
     setBusy(true)
     setStatus("Checking limits…")
+
     try {
       const pre = await fetch("/api/usage", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ feature: "scraper", op: "check"}),
+        body: JSON.stringify({ feature: "scraper", op: "check" }),
       })
       if (!pre.ok) {
         let reason = pre.statusText
@@ -250,7 +213,7 @@ export default function Scraper() {
             if (pre.status === 429) open = true
             if (typeof reason === "string" && /weekly|subscription/i.test(reason)) open = true
           }
-        } catch { }
+        } catch {}
         setShowTiers(open)
         setStatus(reason)
         setMsg({ type: "err", text: reason })
@@ -263,6 +226,7 @@ export default function Scraper() {
       setBusy(false)
       return
     }
+
     setStatus("Starting…")
     setProgress(0)
     setPreview([])
@@ -270,24 +234,26 @@ export default function Scraper() {
     setRawRows(null)
     setRawRows2(null)
     setSpanDays(null)
+
     let stopPoll = false
-      ; (async function poll() {
-        while (!stopPoll) {
-          try {
-            const r = await fetch(`/api/scrape?sid=${encodeURIComponent(sidRef.current)}&progress=1`, { cache: "no-store" })
-            if (r.ok) {
-              const p = await r.json()
-              const total = p.total || limit || 1
-              const fetched = p.fetched || 0
-              const frac = Math.max(0, Math.min(1, total ? fetched / total : 0))
-              setProgress(frac)
-              setStatus(`${p.phase || "Working…"} ${fetched}/${total}`)
-              if (p.done && frac < 1) setProgress(1)
-            }
-          } catch { }
-          await new Promise(r => setTimeout(r, 400))
-        }
-      })()
+    ;(async function poll() {
+      while (!stopPoll) {
+        try {
+          const r = await fetch(`/api/scrape?sid=${encodeURIComponent(sidRef.current)}&progress=1`, { cache: "no-store" })
+          if (r.ok) {
+            const p = await r.json()
+            const total = p.total || limit || 1
+            const fetched = p.fetched || 0
+            const frac = Math.max(0, Math.min(1, total ? fetched / total : 0))
+            setProgress(frac)
+            setStatus(`${p.phase || "Working…"} ${fetched}/${total}`)
+            if (p.done && frac < 1) setProgress(1)
+          }
+        } catch {}
+        await new Promise(r => setTimeout(r, 400))
+      }
+    })()
+
     try {
       const res = await fetch("/api/scrape", {
         method: "POST",
@@ -298,11 +264,11 @@ export default function Scraper() {
           username2: frozen2 || undefined,
           limit,
           dateRange,
-          inclSubs: inclSubs ? 1 : 0,
-          inclVote: inclVote ? 1 : 0,
-          inclComm: inclComm ? 1 : 0,
-          inclPER: inclPER ? 1 : 0,
-          inclMed: inclMed ? 1 : 0,
+          inclSubs: 1,
+          inclVote: 0,
+          inclComm: 0,
+          inclPER: 0,
+          inclMed: 0,
           sid: sidRef.current,
         }),
       })
@@ -315,54 +281,6 @@ export default function Scraper() {
       }
       const payload = await res.json()
       applyPayload(payload)
-      const saveMain = fetch("/api/usage", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          feature: "scraper",
-          op: "save_snapshot",
-          username: frozen1,
-          payload: {
-            datasetSpanDays: payload.datasetSpanDays,
-            preview: payload.preview,
-            preview2: payload.preview2 || null,
-            rawRows: payload.rawRows || null,
-            rawRows2: payload.rawRows2 || null,
-            timeSeries: payload.timeSeries || null,
-            timeSeries2: payload.timeSeries2 || null,
-            defaults: { inclVote, inclComm, inclMed, inclSubs, inclPER: inclSubs ? inclPER : false },
-            dateRange,
-            limit,
-          },
-        }),
-      })
-      const saveCompare = frozen2
-        ? fetch("/api/usage", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({
-            feature: "scraper",
-            op: "save_snapshot",
-            username: frozen2,
-            payload: {
-              datasetSpanDays: payload.datasetSpanDays,
-              preview: payload.preview2 || null,
-              rawRows: payload.rawRows2 || null,
-              timeSeries: payload.timeSeries2 || null,
-              defaults: { inclVote, inclComm, inclMed, inclSubs, inclPER: inclSubs ? inclPER : false },
-              dateRange,
-              limit,
-            },
-          }),
-        })
-        : null
-      const [saveRes] = await Promise.all([saveMain, saveCompare || Promise.resolve({ ok: true, json: async () => ({}) })])
-      if ((saveRes as Response).ok) {
-        const j = await (saveRes as Response).json()
-        if (Array.isArray(j?.items)) setSaved(j.items)
-      }
       setProgress(1)
       setStatus("Ready.")
     } catch (err: any) {
@@ -379,43 +297,44 @@ export default function Scraper() {
 
   return (
     <div className={`min-h-screen bg-background p-4 md:p-6 ${s.bgPattern}`}>
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div className="rounded-lg border border-border bg-card p-4 md:p-6">
+      <div className="mx-auto max-w-4xl space-y-6">
+        {/* <div className="rounded-lg border border-border bg-card p-4 md:p-6"> */}
+        <div className="rounded-lg p-4 md:p-6">
           <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-2">Subreddit Performance Analysis (SPA)</h1>
-          <p className="text-sm md:text-base text-muted-foreground mb-6">Enter the Reddit username you want to analyze for a quantitative performance comparison across subreddits.</p>
+          <p className="text-sm md:text-base text-muted-foreground mb-6">Select a manager and model to analyze subreddit performance. Optionally compare against a second model.</p>
           <Form
             progRef={progRef}
             status={status}
             busy={busy}
-            username={username}
-            dateRange={dateRange}
-            limit={limit}
-            inclVote={inclVote}
-            inclSubs={inclSubs}
-            inclComm={inclComm}
-            inclPER={inclPER}
-            inclMed={inclMed}
             onSubmit={onSubmit}
-            setUsername={setUsername}
-            setDateRange={setDateRange}
-            setLimit={setLimit}
-            setInclVote={setInclVote}
-            setInclSubs={setInclSubs}
-            setInclComm={setInclComm}
-            setInclPER={setInclPER}
-            setInclMed={setInclMed}
-            showSecondUsername={showSecondUsername}
-            setShowSecondUsername={setShowSecondUsername}
-            username2={username2}
-            setUsername2={setUsername2}
+            managers={managers}
+            managerId={managerId}
+            setManagerId={(v) => {
+              setManagerId(v)
+              setModelId("")
+            }}
+            modelId={modelId}
+            setModelId={setModelId}
+            compareEnabled={compareEnabled}
+            setCompareEnabled={(v) => {
+              setCompareEnabled(v)
+              if (!v) {
+                setManagerId2("")
+                setModelId2("")
+              }
+            }}
+            managerId2={managerId2}
+            setManagerId2={(v) => {
+              setManagerId2(v)
+              setModelId2("")
+            }}
+            modelId2={modelId2}
+            setModelId2={setModelId2}
             s={s}
-            saved={saved}
-            onLoadSaved={handleLoadSaved}
-            onDeleteSaved={handleDeleteSaved}
-            onCompareSaved={handleCompareSaved}
           />
         </div>
-        <KPI rows={preview} rows2={preview2 ?? undefined} dateRange={dateRange} limit={runLimit} inclPER={runDefaults.inclPER} username={runUsername} username2={runUsername2} />
+
+        <KPI rows={preview} rows2={preview2 ?? undefined} dateRange={dateRange} limit={runLimit} inclPER={false} username={runUsername} username2={runUsername2} />
         <ExcelSheetSection
           hasTop10={hasRows}
           username={runUsername}
@@ -434,7 +353,7 @@ export default function Scraper() {
           }}
           s={s}
           defaults={runDefaults}
-          subsAvailable={runDefaults.inclSubs}
+          subsAvailable={true}
           onExport={(kind, target, opts) => downloadExport(kind, target, opts)}
         />
         <ScatterPlotSection rows={preview} rows2={preview2 ?? undefined} username={runUsername} username2={runUsername2} s={s} onScatterState={setScatter} />

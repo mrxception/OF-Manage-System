@@ -60,6 +60,8 @@ export default function KPI({
   const k2 = useMemo(() => (rows2 && rows2.length ? compute(rows2) : null), [rows2, dateRange, limit, inclPER])
   const dual = Boolean(k2 && username2)
 
+  if (!rows || rows.length === 0) return null
+
   if (!dual) {
     return (
       <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -70,7 +72,7 @@ export default function KPI({
       </div>
     )
   }
-
+  
   return (
     <div className="mt-4 space-y-4">
       <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
