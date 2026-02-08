@@ -1,257 +1,361 @@
 "use client"
-import React from "react"
-import { Checkbox } from '@/components/ui/checkbox'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select2'
+import React, { useState } from "react"
+import { ComboBox, ComboBoxContent, ComboBoxItem, ComboBoxTrigger, ComboBoxValue } from "@/components/ui/combobox2"
+import { motion, AnimatePresence } from "framer-motion"
+import { Check } from "lucide-react"
+
+type ModelOption = { id: string; name: string; username: string }
+type ManagerOption = { id: string; name: string; models: ModelOption[] }
 
 interface FormProps {
-    onSubmit: (e: React.FormEvent) => void
-    progRef: React.RefObject<HTMLElement | null>
-    status: string
-    busy: boolean
-    username: string
-    setUsername: (v: string) => void
-    showSecondUsername: boolean
-    setShowSecondUsername: (v: boolean) => void
-    username2: string
-    setUsername2: (v: string) => void
-    dateRange: string
-    setDateRange: (v: string) => void
-    limit: number
-    setLimit: (v: number) => void
-    inclVote: boolean
-    setInclVote: (v: boolean) => void
-    inclSubs: boolean
-    setInclSubs: (v: boolean) => void
-    inclComm: boolean
-    setInclComm: (v: boolean) => void
-    inclPER: boolean
-    setInclPER: (v: boolean) => void
-    inclMed: boolean
-    setInclMed: (v: boolean) => void
-    s: { [key: string]: string }
-    saved: Array<{ id: number; username: string; scraped_at: string }>
-    onLoadSaved: (u: string) => void
-    onDeleteSaved: (u: string) => void
-    onCompareSaved: (u: string) => void 
+  onSubmit: (e: React.FormEvent) => void
+  progRef: React.RefObject<HTMLElement | null>
+  status: string
+  busy: boolean
+
+  managers: ManagerOption[]
+  managerId: string
+  setManagerId: (v: string) => void
+  modelId: string
+  setModelId: (v: string) => void
+
+  compareEnabled: boolean
+  setCompareEnabled: (v: boolean) => void
+  managerId2: string
+  setManagerId2: (v: string) => void
+  modelId2: string
+  setModelId2: (v: string) => void
+
+  s: { [key: string]: string }
 }
 
-const Tooltip: React.FC<{ text: React.ReactNode; children: React.ReactNode }> = ({ text, children }) => (
-    <div className="relative inline-flex items-center group">
-        {children}
-        <div className="pointer-events-none absolute bottom-full mb-2 w-72 bg-card text-xs rounded py-2 px-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200 border border-border shadow-lg z-20">
-            {text}
-        </div>
-    </div>
-)
+const steps = [
+  { id: 1, name: "Select Model" },
+  { id: 2, name: "Compare" },
+  { id: 3, name: "Review" },
+]
 
 export default function Form(props: FormProps) {
-    const {
-        onSubmit,
-        progRef,
-        status,
-        busy,
-        username,
-        setUsername,
-        showSecondUsername,
-        setShowSecondUsername,
-        username2,
-        setUsername2,
-        dateRange,
-        setDateRange,
-        limit,
-        setLimit,
-        inclVote,
-        setInclVote,
-        inclSubs,
-        setInclSubs,
-        inclComm,
-        setInclComm,
-        inclPER,
-        setInclPER,
-        inclMed,
-        setInclMed,
-        s,
-        saved,
-        onLoadSaved,
-        onDeleteSaved,
-        onCompareSaved
-    } = props
+  const {
+    onSubmit,
+    progRef,
+    status,
+    busy,
+    managers,
+    managerId,
+    setManagerId,
+    modelId,
+    setModelId,
+    compareEnabled,
+    setCompareEnabled,
+    managerId2,
+    setManagerId2,
+    modelId2,
+    setModelId2,
+    s,
+  } = props
 
-    const addSecond = () => setShowSecondUsername(true)
-    const removeSecond = () => {
-        setUsername2("")
-        setShowSecondUsername(false)
-    }
-    const perDisabled = !inclSubs
+  const [currentStep, setCurrentStep] = useState(1)
 
-    return (
-        <form onSubmit={onSubmit}>
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-4">
-                <div className="lg:col-span-8">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-                        {/* 
-                        <div className="sm:col-span-1 lg:col-span-3">
-                            <label htmlFor="username" className="block text-sm font-semibold text-foreground mb-2">Reddit Username</label>
-                            <input className={s.csvinput} id="username" name="username" placeholder="e.g. spez" required value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" />
-                        </div>
+  const mgrA = managers.find(m => m.id === managerId) || null
+  const modelsA = mgrA?.models || []
 
-                        {showSecondUsername ? (
-                            <div className="sm:col-span-1 lg:col-span-3">
-                                <label htmlFor="username2" className="block text-sm font-semibold text-foreground mb-2">Another Username</label>
-                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
-                                    <input className={`${s.csvinput} lg:col-span-2`} id="username2" name="username2" placeholder="e.g. another_user" value={username2} onChange={(e) => setUsername2(e.target.value)} autoComplete="off" />
-                                    <button type="button" className={`${s.btn2} w-full lg:col-span-1`} onClick={removeSecond} disabled={busy} aria-label="Remove second username">Remove</button>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="sm:col-span-1 lg:col-span-3 flex items-end">
-                                <button type="button" className={`${s.btn2} w-full`} onClick={addSecond} disabled={busy} aria-label="Add another username">+ Compare with another username</button>
-                            </div>
-                        )}
-                        */}
+  const mgrB = managers.find(m => m.id === managerId2) || null
+  const modelsB = mgrB?.models || []
 
-                        {showSecondUsername ? (
-                            <>
-                                <div className="lg:col-span-2">
-                                    <label htmlFor="username" className="block text-sm font-semibold text-foreground mb-2">
-                                        Reddit Username
-                                    </label>
-                                    <input
-                                        className={s.csvinput}
-                                        id="username"
-                                        name="username"
-                                        placeholder="e.g. spez"
-                                        required
-                                        value={username}
-                                        onChange={(e) => setUsername(e.target.value)}
-                                        autoComplete="off"
-                                    />
-                                </div>
+  const addCompare = () => setCompareEnabled(true)
+  const removeCompare = () => {
+    setManagerId2("")
+    setModelId2("")
+    setCompareEnabled(false)
+  }
 
-                                <div className="lg:col-span-4">
-                                    <label htmlFor="username2" className="block text-sm font-semibold text-foreground mb-2">
-                                        Another Username
-                                    </label>
-                                    <div className="grid grid-cols-1 lg:grid-cols-4 gap-2">
-                                        <input
-                                            className={`${s.csvinput} lg:col-span-2`}
-                                            id="username2"
-                                            name="username2"
-                                            placeholder="e.g. another_user"
-                                            value={username2}
-                                            onChange={(e) => setUsername2(e.target.value)}
-                                            autoComplete="off"
-                                        />
-                                        <button
-                                            type="button"
-                                            className={`${s.btn2} w-full lg:col-span-2`}
-                                            onClick={removeSecond}
-                                            disabled={busy}
-                                            aria-label="Remove second username"
-                                        >
-                                            Remove
-                                        </button>
-                                    </div>
-                                </div>
+  const canProgressFromStep1 = managerId && modelId
+  const canProgressFromStep2 = !compareEnabled || (managerId2 && modelId2)
 
-                            </>
-                        ) : (
-                            <>
-                                <div className="sm:col-span-1 lg:col-span-3">
-                                    <label htmlFor="username" className="block text-sm font-semibold text-foreground mb-2">Reddit Username</label>
-                                    <input className={s.csvinput} id="username" name="username" placeholder="e.g. spez" required value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" />
-                                </div>
-                                <div className="sm:col-span-1 lg:col-span-3 flex items-end">
-                                    <button type="button" className={`${s.btn2} w-full`} onClick={addSecond} disabled={busy} aria-label="Add another username">+ Compare with another username</button>
-                                </div>
-                            </>
-                        )}
+  const handleNext = () => {
+    if (currentStep === 1 && canProgressFromStep1) setCurrentStep(2)
+    if (currentStep === 2 && canProgressFromStep2) setCurrentStep(3)
+  }
 
+  const handleBack = () => {
+    if (currentStep > 1) setCurrentStep(currentStep - 1)
+  }
 
-                        <div className="lg:col-span-2">
-                            <label htmlFor="dateRange" className="block text-sm font-semibold text-foreground mb-2">Date Range</label>
-                            <Select value={dateRange} onValueChange={setDateRange}>
-                                <SelectTrigger id="dateRange" className={s.csvinput}>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">All Time</SelectItem>
-                                    <SelectItem value="7">Last 7 Days</SelectItem>
-                                    <SelectItem value="30">Last 30 Days</SelectItem>
-                                    <SelectItem value="60">Last 60 Days</SelectItem>
-                                    <SelectItem value="90">Last 90 Days</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
+  const selectedModelA = modelsA.find(m => m.id === modelId)
+  const selectedModelB = modelsB.find(m => m.id === modelId2)
 
-                        <div className="sm:col-span-1 lg:col-span-2">
-                            <label htmlFor="limit" className="block text-sm font-semibold text-foreground mb-2">Max posts (1–1000)</label>
-                            <input className={s.csvinput} id="limit" name="limit" type="number" min="1" max="1000" value={limit} onChange={(e) => setLimit(Number(e.target.value || 1000))} />
-                        </div>
+  return (
+    <form onSubmit={onSubmit}>
+      <nav aria-label="Progress" className="mb-8">
+        <ol className="flex items-center justify-between gap-2">
+          {steps.map((step, index) => {
+            const isComplete = step.id < currentStep
+            const isActive = step.id === currentStep
 
-                        <div className="sm:col-span-2 lg:col-span-2 flex items-end">
-                            <button className={`${s.btn} w-full`} type="submit" disabled={busy}>{busy ? "Preparing…" : "Run Analysis"}</button>
-                        </div>
+            return (
+              <li key={step.id} className="flex-1 flex items-center">
+                <div className="flex flex-col items-center w-full">
+                  <div className="flex items-center w-full">
+                    {index > 0 && (
+                      <div className="flex-1 h-0.5 mx-2">
+                        <div
+                          className={[
+                            "h-full rounded-full transition-colors duration-300",
+                            isComplete || isActive ? "bg-primary/80" : "bg-border/60",
+                          ].join(" ")}
+                        />
+                      </div>
+                    )}
+
+                    <div
+                      className={[
+                        "relative flex items-center justify-center w-10 h-10 rounded-full shrink-0 transition-all duration-300",
+                        "border",
+                        isComplete
+                          ? "bg-primary text-primary-foreground border-primary shadow-sm shadow-primary/20"
+                          : isActive
+                            ? "bg-primary/10 text-primary border-primary/60 ring-2 ring-primary/15"
+                            : "bg-transparent text-muted-foreground border-border/60",
+                      ].join(" ")}
+                    >
+                      {isComplete ? <Check className="w-5 h-5" /> : <span className="text-sm font-semibold">{step.id}</span>}
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-4 lg:grid-cols-8 gap-3 mt-4">
-                        <b className="block text-sm font-semibold text-foreground mb-1">Metric to Include:</b>
-                        <label htmlFor="inclSubs" className="flex items-center gap-2 cursor-pointer lg:col-span-2">
-                            <Checkbox
-                                id="inclSubs"
-                                checked={inclSubs}
-                                onCheckedChange={(v) => {
-                                    const b = Boolean(v)
-                                    setInclSubs(b)
-                                    if (!b) setInclPER(false)
-                                }}
-                                className="size-5 rounded-full border-1 bg-[var(--color-background)] border-[var(--color-primary)]"
-                            />
-                            <span className="text-sm text-foreground">Subreddit member count</span>
-                            <Tooltip
-                                text={
-                                    <div className="space-y-1">
-                                        <p className="font-medium">Subreddit Member Counts</p>
-                                        <p>Include member counts during scraping to enrich your dataset.<span><b> This makes scraping longer</b></span></p>
-                                        <ul className="list-disc pl-4 space-y-0.5">
-                                            <li>Unlocks Performance Rating checkboxes.</li>
-                                            <li>Turns the scatter plot into a bubble chart sized by members.</li>
-                                        </ul>
-                                        <p className="text-muted-foreground/80">Disable to skip member lookups.</p>
-                                    </div>
-                                }
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 pt-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                            </Tooltip>
-                        </label>
-                    </div>
+                    {index < steps.length - 1 && (
+                      <div className="flex-1 h-0.5 mx-2">
+                        <div
+                          className={[
+                            "h-full rounded-full transition-colors duration-300",
+                            isComplete ? "bg-primary/80" : "bg-border/60",
+                          ].join(" ")}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-3 text-center">
+                    <p
+                      className={[
+                        "text-sm font-medium transition-colors",
+                        isActive ? "text-foreground" : isComplete ? "text-primary/90" : "text-muted-foreground",
+                      ].join(" ")}
+                    >
+                      {step.name}
+                    </p>
+                  </div>
+                </div>
+              </li>
+            )
+          })}
+        </ol>
+      </nav>
+
+      <div className="bg-card/80 backdrop-blur rounded-xl border border-border/60 shadow-lg shadow-black/20 overflow-hidden w-full lg:mx-auto mb-6">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentStep}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.2 }}
+            className="p-6"
+          >
+            {currentStep === 1 && (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-lg font-semibold mb-1">Select Model</h3>
+                  <p className="text-sm text-muted-foreground mb-4">Choose a manager and model for analysis</p>
                 </div>
 
-                <aside className="lg:col-span-4">
-                    <div className="block text-sm font-semibold text-foreground mb-2">Saved scrape usernames</div>
-                    <div className={s.history}>
-                        {saved.length === 0 && <div className={s.histrow}><div className={s.flex1}><div className={s.fname}>No saved sessions</div></div></div>}
-                        {saved.map(item => (
-                            <div key={item.id} className={s.histrow}>
-                                <div className={s.flex1}>
-                                    <div className={s.fname}>{item.username}</div>
-                                    <div className={s.hint} style={{ fontSize: '0.8rem',marginTop : '-0.5px' }}>{new Date(item.scraped_at).toLocaleString()}</div>
-                                </div>
-                                <button type="button" className={s.mini} onClick={() => onLoadSaved(item.username)}>Load</button>
-                                <button type="button" className={s.mini} onClick={() => onCompareSaved(item.username)}>Compare</button>
-                                <button type="button" className={`${s.mini} ${s.subtle}`} onClick={() => onDeleteSaved(item.username)}>Delete</button>
-                            </div>
-                        ))}
-                    </div>
-                </aside>
-            </div>
+                <div>
+                  <label htmlFor="managerA" className="block text-sm font-semibold text-foreground mb-2">
+                    Manager
+                  </label>
+                  <ComboBox value={managerId} onValueChange={setManagerId}>
+                    <ComboBoxTrigger
+                      id="managerA"
+                      className={`${s.csvinput} bg-background/40 border-border/60 focus:ring-2 focus:ring-primary/20`}
+                    >
+                      <ComboBoxValue placeholder="Select manager" />
+                    </ComboBoxTrigger>
+                    <ComboBoxContent>
+                      {managers.map(m => (
+                        <ComboBoxItem key={m.id} value={m.id}>
+                          {m.name}
+                        </ComboBoxItem>
+                      ))}
+                    </ComboBoxContent>
+                  </ComboBox>
+                </div>
 
-            <div className={s.bar} aria-hidden="true">
-                <i id="progress" ref={progRef} />
-            </div>
-            <div id="status" className={`${s.hint} flex justify-center`}>
-                <span>{status}</span>
-            </div>
-        </form>
-    )
+                <div>
+                  <label htmlFor="modelA" className="block text-sm font-semibold text-foreground mb-2">
+                    Model
+                  </label>
+                  <ComboBox value={modelId} onValueChange={setModelId} disabled={!managerId}>
+                    <ComboBoxTrigger
+                      id="modelA"
+                      className={`${s.csvinput} bg-background/40 border-border/60 focus:ring-2 focus:ring-primary/20`}
+                    >
+                      <ComboBoxValue placeholder={managerId ? "Select model" : "Select manager first"} />
+                    </ComboBoxTrigger>
+                    <ComboBoxContent>
+                      {modelsA.map(m => (
+                        <ComboBoxItem key={m.id} value={m.id}>
+                          {m.name}
+                        </ComboBoxItem>
+                      ))}
+                    </ComboBoxContent>
+                  </ComboBox>
+                </div>
+              </div>
+            )}
+
+            {currentStep === 2 && (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-lg font-semibold mb-1">Compare Models</h3>
+                  <p className="text-sm text-muted-foreground mb-4">Optionally compare against another model</p>
+                </div>
+
+                {!compareEnabled ? (
+                  <div className="border border-dashed border-border/60 bg-muted/20 rounded-xl p-8 text-center">
+                    <p className="text-muted-foreground mb-4">Add a second model to compare results side by side</p>
+                    <button type="button" className={s.btn2} onClick={addCompare}>
+                      Add Comparison
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium">Comparison Model</span>
+                      <button
+                        type="button"
+                        className="text-sm text-muted-foreground hover:text-foreground"
+                        onClick={removeCompare}
+                      >
+                        Remove
+                      </button>
+                    </div>
+
+                    <div>
+                      <label htmlFor="managerB" className="block text-sm font-semibold text-foreground mb-2">
+                        Manager
+                      </label>
+                      <ComboBox value={managerId2} onValueChange={setManagerId2}>
+                        <ComboBoxTrigger
+                          id="managerB"
+                          className={`${s.csvinput} bg-background/40 border-border/60 focus:ring-2 focus:ring-primary/20`}
+                        >
+                          <ComboBoxValue placeholder="Select manager" />
+                        </ComboBoxTrigger>
+                        <ComboBoxContent>
+                          {managers.map(m => (
+                            <ComboBoxItem key={m.id} value={m.id}>
+                              {m.name}
+                            </ComboBoxItem>
+                          ))}
+                        </ComboBoxContent>
+                      </ComboBox>
+                    </div>
+
+                    <div>
+                      <label htmlFor="modelB" className="block text-sm font-semibold text-foreground mb-2">
+                        Model
+                      </label>
+                      <ComboBox value={modelId2} onValueChange={setModelId2} disabled={!managerId2}>
+                        <ComboBoxTrigger
+                          id="modelB"
+                          className={`${s.csvinput} bg-background/40 border-border/60 focus:ring-2 focus:ring-primary/20`}
+                        >
+                          <ComboBoxValue placeholder={managerId2 ? "Select model" : "Select manager first"} />
+                        </ComboBoxTrigger>
+                        <ComboBoxContent>
+                          {modelsB.map(m => (
+                            <ComboBoxItem key={m.id} value={m.id}>
+                              {m.name}
+                            </ComboBoxItem>
+                          ))}
+                        </ComboBoxContent>
+                      </ComboBox>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {currentStep === 3 && (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-lg font-semibold mb-1">Review & Run</h3>
+                  <p className="text-sm text-muted-foreground mb-4">Confirm your selections and run the analysis</p>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="bg-muted/30 border border-border/60 rounded-xl p-4">
+                    <p className="text-xs font-medium text-muted-foreground uppercase mb-2">Primary Model</p>
+                    <p className="text-foreground font-medium">
+                      {mgrA?.name} → {selectedModelA?.name}
+                    </p>
+                  </div>
+
+                  {compareEnabled && managerId2 && modelId2 ? (
+                    <div className="bg-muted/30 border border-border/60 rounded-xl p-4">
+                      <p className="text-xs font-medium text-muted-foreground uppercase mb-2">Comparison Model</p>
+                      <p className="text-foreground font-medium">
+                        {mgrB?.name} → {selectedModelB?.name}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="bg-muted/20 border border-dashed border-border/60 rounded-xl p-4">
+                      <p className="text-sm text-muted-foreground italic">No comparison model selected</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
+
+        <div className="px-6 py-4 bg-muted/30 border-t border-border/60 flex items-center justify-between">
+          <div>
+            {currentStep > 1 && (
+              <button type="button" className={s.btn2} onClick={handleBack} disabled={busy}>
+                Back
+              </button>
+            )}
+          </div>
+
+          <div>
+            {currentStep < 3 ? (
+              <button
+                type="button"
+                className={s.btn}
+                onClick={handleNext}
+                disabled={
+                  busy ||
+                  (currentStep === 1 && !canProgressFromStep1) ||
+                  (currentStep === 2 && !canProgressFromStep2)
+                }
+              >
+                {currentStep === 2 && !compareEnabled ? "Skip & Continue" : "Next"}
+              </button>
+            ) : (
+              <button className={s.btn} type="submit" disabled={busy}>
+                {busy ? "Preparing…" : "Run Analysis"}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className={s.bar} aria-hidden="true">
+        <i id="progress" ref={progRef} />
+      </div>
+      <div id="status" className={`${s.hint} flex justify-center`}>
+        <span>{status}</span>
+      </div>
+    </form>
+  )
 }
