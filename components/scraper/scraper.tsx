@@ -170,6 +170,24 @@ export default function Scraper() {
     return reason || `HTTP ${res.status}`
   }
 
+  async function loadSavedByUsername(token: string, username: string) {
+    const r = await fetch("/api/scraper/model", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ username }),
+    })
+
+    if (r.status === 404) return { ok: false as const, notFound: true as const, payload: null }
+    if (!r.ok) {
+      const reason = await readServerError(r)
+      return { ok: false as const, notFound: false as const, payload: null, reason }
+    }
+
+    const j = await r.json()
+    return { ok: true as const, notFound: false as const, payload: j?.payload ?? null }
+  }
+
   function applyPayload(p: any) {
     setPreview(Array.isArray(p.preview) ? p.preview : [])
     setPreview2(Array.isArray(p.preview2) ? p.preview2 : null)
@@ -221,6 +239,46 @@ export default function Scraper() {
     if (!token) {
       setStatus("Please log in to use this feature.")
       setMsg({ type: "err", text: "Please log in to use this feature." })
+      return
+    }
+
+    setStatus("Loading saved results…")
+
+    const saved1 = await loadSavedByUsername(token, frozen1)
+    const saved2 = compareEnabled && frozen2 ? await loadSavedByUsername(token, frozen2) : null
+
+    const found1 = saved1.ok && saved1.payload
+    const found2 = !!saved2?.ok && !!saved2?.payload
+
+    if (found1 && (!compareEnabled || found2)) {
+      const merged: any = { ...(saved1.payload || {}) }
+      if (compareEnabled && saved2?.payload) {
+        merged.preview2 = saved2.payload.preview ?? saved2.payload.preview2 ?? null
+        merged.rawRows2 = saved2.payload.rawRows ?? saved2.payload.rawRows2 ?? null
+        merged.timeSeries2 = saved2.payload.timeSeries ?? saved2.payload.timeSeries2 ?? null
+      }
+      applyPayload(merged)
+      setProgress(1)
+      setStatus("Ready.")
+      return
+    }
+
+    if (found1 && compareEnabled && !found2) {
+      setStatus("Primary loaded. Comparison not found—starting scrape…")
+    } else if (!found1 && compareEnabled && found2) {
+      setStatus("Comparison loaded. Primary not found—starting scrape…")
+    } else if (!found1 && !found2) {
+      setStatus("No saved results—starting scrape…")
+    } else if (!compareEnabled && !found1) {
+      setStatus("No saved result—starting scrape…")
+    }
+
+    if (!saved1.ok && !saved1.notFound) {
+      setMsg({ type: "err", text: saved1.reason || "Failed to load saved results." })
+      return
+    }
+    if (compareEnabled && saved2 && !saved2.ok && !saved2.notFound) {
+      setMsg({ type: "err", text: saved2.reason || "Failed to load saved comparison results." })
       return
     }
 
@@ -332,7 +390,7 @@ export default function Scraper() {
 
   return (
     <div className={`min-h-screen bg-background p-4 md:p-6 ${s.bgPattern}`}>
-      <div className="mx-auto max-w-4xl space-y-6">
+      <div className="mx-auto max-w-7xl space-y-6">
         {/* <div className="rounded-lg border border-border bg-card p-4 md:p-6"> */}
         <div className="rounded-lg p-4 md:p-6">
           <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-2">Subreddit Performance Analysis (SPA)</h1>
