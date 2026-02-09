@@ -151,7 +151,7 @@ export default function Form(props: FormProps) {
         </ol>
       </nav>
 
-      <div className="bg-card/80 backdrop-blur rounded-xl border border-border/60 shadow-lg shadow-black/20 overflow-hidden w-full lg:mx-auto mb-6">
+      <div className="bg-card/80 backdrop-blur rounded-xl border border-border/60 shadow-lg shadow-black/20 overflow-visible w-full lg:mx-auto mb-6">
         <AnimatePresence mode="wait">
           <motion.div
             key={currentStep}
