@@ -17,21 +17,9 @@ type ModelOption = { id: string; name: string; username: string }
 type ManagerOption = { id: string; name: string; models: ModelOption[] }
 
 export default function Scraper() {
-  const managers: ManagerOption[] = [
-    {
-      id: "mgr_1",
-      name: "Manager A",
-      models: [
-        { id: "mdl_1", name: "Model 1", username: "spez" },
-        { id: "mdl_2", name: "Model 2", username: "reddit" },
-      ],
-    },
-    {
-      id: "mgr_2",
-      name: "Manager B",
-      models: [{ id: "mdl_3", name: "Model 3", username: "example_user" }],
-    },
-  ]
+  const [managers, setManagers] = useState<ManagerOption[]>([])
+  const [managersLoading, setManagersLoading] = useState(true)
+  const [managersError, setManagersError] = useState<string | null>(null)
 
   const [compareEnabled, setCompareEnabled] = useState(false)
 
@@ -95,6 +83,39 @@ export default function Scraper() {
     }
     window.addEventListener("beforeunload", cleanup)
     return () => cleanup()
+  }, [])
+
+  useEffect(() => {
+    let alive = true
+
+    ;(async () => {
+      try {
+        setManagersLoading(true)
+        setManagersError(null)
+
+        const r = await fetch("/api/scraper", { cache: "no-store" })
+        if (!r.ok) {
+          const j = await r.json().catch(() => null)
+          const reason = (j && typeof j.error === "string" && j.error) || `Failed to load managers (HTTP ${r.status})`
+          throw new Error(reason)
+        }
+
+        const j = await r.json()
+        const arr = Array.isArray(j?.managers) ? j.managers : []
+        if (alive) setManagers(arr)
+      } catch (e: any) {
+        if (alive) {
+          setManagers([])
+          setManagersError(e?.message || "Failed to load managers.")
+        }
+      } finally {
+        if (alive) setManagersLoading(false)
+      }
+    })()
+
+    return () => {
+      alive = false
+    }
   }, [])
 
   async function downloadExport(
@@ -161,6 +182,18 @@ export default function Scraper() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (managersLoading) {
+      setStatus("Loading managers…")
+      setMsg({ type: "err", text: "Managers are still loading. Please wait." })
+      return
+    }
+
+    if (managersError) {
+      setStatus(managersError)
+      setMsg({ type: "err", text: managersError })
+      return
+    }
 
     const m1 = getSelectedModel(managerId, modelId)
     const m2 = compareEnabled ? getSelectedModel(managerId2, modelId2) : null
@@ -293,6 +326,8 @@ export default function Scraper() {
     }
   }
 
+  const uiBusy = busy || managersLoading
+  const uiStatus = managersError ? managersError : status
   const hasRows = Array.isArray(preview) && preview.length > 0
 
   return (
@@ -304,8 +339,8 @@ export default function Scraper() {
           <p className="text-sm md:text-base text-muted-foreground mb-6">Select a manager and model to analyze subreddit performance. Optionally compare against a second model.</p>
           <Form
             progRef={progRef}
-            status={status}
-            busy={busy}
+            status={uiStatus}
+            busy={uiBusy}
             onSubmit={onSubmit}
             managers={managers}
             managerId={managerId}
