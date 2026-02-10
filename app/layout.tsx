@@ -8,7 +8,7 @@ import "./globals.css"
 import { Suspense } from "react"
 
 export const metadata: Metadata = {
-  title: "OF Management System - Reddit Analytics",
+  title: "Pexmed - Reddit Analytics",
   description: "Analyze Reddit performance",
   generator: "Next.js",
 }

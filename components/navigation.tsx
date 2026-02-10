@@ -105,7 +105,7 @@ export default function Navigation() {
               href="/"
               className="flex items-center gap-2 mr-4 order-last md:order-none"
             >
-              <span className="text-xl font-bold text-foreground">OFMReddit</span>
+              <span className="text-xl font-bold text-foreground">PEXMED REDDIT</span>
             </Link>
 
             {user && (

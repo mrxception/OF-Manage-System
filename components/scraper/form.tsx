@@ -82,11 +82,15 @@ export default function Form(props: FormProps) {
     if (currentStep > 1) setCurrentStep(currentStep - 1)
   }
 
+  const handleReset = () => {
+    if (typeof window !== "undefined") window.location.reload()
+  }
+
   const selectedModelA = modelsA.find(m => m.id === modelId)
   const selectedModelB = modelsB.find(m => m.id === modelId2)
 
   return (
-    <form onSubmit={onSubmit}>
+    <form onSubmit={(e) => e.preventDefault()}>
       <nav aria-label="Progress" className="mb-8">
         <ol className="flex items-center justify-between gap-2">
           {steps.map((step, index) => {
@@ -232,7 +236,7 @@ export default function Form(props: FormProps) {
                       <span className="text-sm font-medium">Comparison Model</span>
                       <button
                         type="button"
-                        className="text-sm text-muted-foreground hover:text-foreground"
+                        className="text-sm text-destructive hover:text-red-500 transition-colors"
                         onClick={removeCompare}
                       >
                         Remove
@@ -319,12 +323,16 @@ export default function Form(props: FormProps) {
         </AnimatePresence>
 
         <div className="px-6 py-4 bg-muted/30 border-t border-border/60 flex items-center justify-between">
-          <div>
+          <div className="flex items-center gap-2">
             {currentStep > 1 && (
               <button type="button" className={s.btn2} onClick={handleBack} disabled={busy}>
                 Back
               </button>
             )}
+
+            <button type="button" className={s.btn3} onClick={handleReset} disabled={busy}>
+              Reset
+            </button>
           </div>
 
           <div>
@@ -342,12 +350,18 @@ export default function Form(props: FormProps) {
                 {currentStep === 2 && !compareEnabled ? "Skip & Continue" : "Next"}
               </button>
             ) : (
-              <button className={s.btn} type="submit" disabled={busy}>
+              <button
+                className={s.btn}
+                type="button"
+                disabled={busy}
+                onClick={() => onSubmit({ preventDefault() {} } as any)}
+              >
                 {busy ? "Preparing…" : "Run Analysis"}
               </button>
             )}
           </div>
         </div>
+
       </div>
 
       <div className={s.bar} aria-hidden="true">

@@ -200,7 +200,9 @@ export default function Scraper() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
+    const se = e.nativeEvent as SubmitEvent
+    console.log("SUBMIT FIRED — submitter:", se?.submitter)
+    console.log("SUBMIT FIRED — active element:", document.activeElement)
     if (managersLoading) {
       setStatus("Loading managers…")
       setMsg({ type: "err", text: "Managers are still loading. Please wait." })
@@ -453,7 +455,7 @@ export default function Scraper() {
         <BarChartSection rows={preview} rows2={preview2 ?? undefined} username={runUsername} username2={runUsername2} s={s} averageMetricKey={averageMetricKey} onMetricChange={setAverageMetricKey} />
         <BoxPlotSection rows={preview} rows2={preview2 ?? undefined} username={runUsername} username2={runUsername2} s={s} averageMetricKey={averageMetricKey} />
         <LineChartSection username={runUsername} username2={runUsername2} rows={preview} rows2={preview2 ?? undefined} timeSeries={timeSeries ?? undefined} timeSeries2={timeSeries2 ?? undefined} />
-        <KeyInsightsSection rows={preview} onInsights={setInsights} />
+        {/* <KeyInsightsSection rows={preview} onInsights={setInsights} /> */}
         <PdfSection
           username={runUsername}
           username2={runUsername2}
