@@ -35,7 +35,7 @@ async function sendVerificationEmail(to: string, code: string) {
 </head>
 <body>
   <div class="container">
-    <div class="header"><h1>OFMReddit</h1></div>
+    <div class="header"><h1>PEXMED</h1></div>
     <div class="body">
       <h2 style="margin-top:0;">Verify Your Email</h2>
       <p><strong>Do not share this code with anyone. If you didn’t request this, please ignore this message.</strong></p>
@@ -43,7 +43,7 @@ async function sendVerificationEmail(to: string, code: string) {
       <p>This code expires in <strong>15 minutes</strong>.</p>
     </div>
     <div class="footer">
-      <p>© ${new Date().getFullYear()} OFMReddit. All rights reserved.</p>
+      <p>© ${new Date().getFullYear()} PEXMED. All rights reserved.</p>
     </div>
   </div>
 </body>
@@ -51,9 +51,9 @@ async function sendVerificationEmail(to: string, code: string) {
   `
 
   await transporter.sendMail({
-    from: `"OFMReddit" <${process.env.SMTP_USER}>`,
+    from: `"PEXMED" <${process.env.SMTP_USER}>`,
     to,
-    subject: "Your Verification Code – OFMReddit",
+    subject: "Your Verification Code – PEXMED",
     text: `Your verification code is: ${code}\nIt expires in 15 minutes.`,
     html,
   })
