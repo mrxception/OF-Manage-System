@@ -158,11 +158,7 @@ export default function LineChartSection({ users, username, username2, rows, row
     return arr
   }, [users, timeSeries, timeSeries2, username, username2])
 
-  if (!cleanUsers.length) return null
-  if (!rows || rows.length === 0) return null
-
-  const cs = getComputedStyle(document.documentElement)
-  const primary = cs.getPropertyValue("--sidebar-primary")?.trim() || "var(--sidebar-primary)"
+  const primary = "var(--sidebar-primary)"
 
   const palette = React.useMemo(
     () => [
@@ -174,7 +170,7 @@ export default function LineChartSection({ users, username, username2, rows, row
       "rgb(239,68,68)",
       "rgb(34,197,94)",
     ],
-    [primary]
+    []
   )
 
   const metricLabel = metric === "avg_upvotes" ? "Average Upvotes" : metric === "avg_comments" ? "Average Root Comments" : "Total Upvotes"
@@ -217,6 +213,9 @@ export default function LineChartSection({ users, username, username2, rows, row
   const legend = perUserSeries.map((u, idx) => ({ label: u.label, color: palette[idx % palette.length] }))
   const colorMap = Object.fromEntries(legend.map((l) => [l.label, l.color]))
 
+  if (!cleanUsers.length) return null
+  if (!rows || rows.length === 0) return null
+  
   return (
     <div className="rounded-lg border border-border bg-card">
       <header

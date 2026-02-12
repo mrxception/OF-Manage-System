@@ -69,70 +69,45 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   )
 }
 
-export default function PerformanceLineChart({ data, seriesKeys, metricLabel, domain, legend, colorMap }: Props) {
+export default function PerformanceLineChart({ data, seriesKeys, metricLabel, domain }: Props) {
   const tickColor = "var(--muted-foreground)"
-  const gridStroke = "color-mix(in oklch, var(--muted-foreground) 15%, transparent)"
-  const cs = typeof window !== "undefined" ? getComputedStyle(document.documentElement) : (null as any)
-  const primary = cs?.getPropertyValue("--sidebar-primary")?.trim() || "var(--sidebar-primary)"
+  const gridStrokeColor = "color-mix(in oklch, var(--muted-foreground) 15%, transparent)"
+  const primary = "var(--sidebar-primary)"
 
-  const palette = useMemo(
-    () => [
-      primary,
-      "rgb(20,184,166)",
-      "rgb(59,130,246)",
-      "rgb(168,85,247)",
-      "rgb(234,179,8)",
-      "rgb(239,68,68)",
-      "rgb(34,197,94)",
-    ],
-    [primary]
-  )
+  const palette = [
+    primary,
+    "rgb(20,184,166)",
+    "rgb(59,130,246)",
+    "rgb(168,85,247)",
+    "rgb(234,179,8)",
+    "rgb(239,68,68)",
+    "rgb(34,197,94)",
+  ]
 
-  const colors = useMemo(() => {
-    const m: Record<string, string> = {}
-    for (let i = 0; i < seriesKeys.length; i++) {
-      const k = seriesKeys[i]
-      const forced = colorMap?.[k]
-      m[k] = forced || palette[i % palette.length]
-    }
-    return m
-  }, [seriesKeys, palette, colorMap])
+  const colors: Record<string, string> = {}
+  seriesKeys.forEach((k, i) => {
+    colors[k] = palette[i % palette.length]
+  })
 
   const [min, max] = domain
   const paddedDomain: [number, number] = [min, Math.ceil((max || 10) * 1.05)]
 
-  const LegendContent = () => {
-    if (!legend || legend.length === 0) return null
-    return (
-      <div className="flex items-center gap-4 flex-wrap">
-        {legend.map((it) => (
-          <div key={it.label} className="flex items-center gap-2">
-            <span className="inline-block w-3 h-3 rounded-sm" style={{ background: it.color }} aria-hidden="true" />
-            <span className="text-sm text-muted-foreground">{it.label}</span>
-          </div>
-        ))}
-      </div>
-    )
-  }
-
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <RLineChart data={data} margin={{ top: legend?.length ? 10 : 6, right: 24, left: 40, bottom: 6 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke as any} />
+      <RLineChart data={data} margin={{ top: 6, right: 24, left: 40, bottom: 6 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke={gridStrokeColor} />
         <XAxis dataKey="date" tick={{ fill: tickColor }} stroke={tickColor} tickFormatter={fmtDate} />
         <YAxis
           tick={{ fill: tickColor }}
           stroke={tickColor}
-          tickFormatter={(t) => Number(t).toLocaleString()}
+          tickFormatter={(tick) => Number(tick).toLocaleString()}
           domain={paddedDomain}
           allowDataOverflow
         >
           <Label value={metricLabel} angle={-90} position="insideLeft" style={{ textAnchor: "middle", fill: tickColor }} />
         </YAxis>
-
         <Tooltip content={<CustomTooltip />} />
-        {legend?.length ? <Legend verticalAlign="top" align="left" height={36} content={<LegendContent />} /> : <Legend iconSize={10} />}
-
+        <Legend iconSize={10} />
         {seriesKeys.map((k) => (
           <Line
             key={k}
