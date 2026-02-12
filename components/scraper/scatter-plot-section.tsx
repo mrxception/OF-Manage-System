@@ -1,3 +1,4 @@
+// scatter-plot-section.tsx
 "use client"
 
 import React from "react"
@@ -43,11 +44,10 @@ type Point = {
   Subreddit_Subscribers: number
 }
 
+type UserDataset = { username: string; rows: any[] }
+
 interface Props {
-  rows: any[]
-  rows2?: any[]
-  username: string
-  username2?: string
+  users: UserDataset[]
   s: { [k: string]: string }
   defaultX?: AxisChoice
   defaultY?: AxisChoice
@@ -55,10 +55,7 @@ interface Props {
 }
 
 export default function ScatterPlotSection({
-  rows,
-  rows2,
-  username,
-  username2,
+  users,
   s,
   defaultX = "Total_Posts",
   defaultY = "Average_Upvotes",
@@ -94,10 +91,15 @@ export default function ScatterPlotSection({
     []
   )
 
-  const all1 = React.useMemo<Point[]>(() => mapRows(rows || []), [rows, mapRows])
-  const all2 = React.useMemo<Point[]>(() => mapRows(rows2 || []), [rows2, mapRows])
+  const mappedUsers = React.useMemo(
+    () =>
+      (users || [])
+        .map((u) => ({ username: (u.username || "").trim(), data: mapRows(u.rows || []) }))
+        .filter((u) => u.username && u.data.length > 0),
+    [users, mapRows]
+  )
 
-  const hasSubs = React.useMemo(() => [...all1, ...all2].some(p => p.Subreddit_Subscribers > 0), [all1, all2])
+  const hasSubs = React.useMemo(() => mappedUsers.some((u) => u.data.some((p) => p.Subreddit_Subscribers > 0)), [mappedUsers])
 
   const AXIS_OPTIONS: { value: AxisChoice; label: string }[] = React.useMemo(() => {
     const base: { value: AxisChoice; label: string }[] = [
@@ -129,7 +131,7 @@ export default function ScatterPlotSection({
       if (choice === "Average_Upvotes") {
         return averageMetricKey === "median" ? "Average Upvotes (Median)" : "Average Upvotes (Mean)"
       }
-      const found = AXIS_OPTIONS.find(o => o.value === choice)?.label
+      const found = AXIS_OPTIONS.find((o) => o.value === choice)?.label
       return found || String(choice)
     },
     [AXIS_OPTIONS, averageMetricKey]
@@ -138,26 +140,36 @@ export default function ScatterPlotSection({
   const xLabel = React.useMemo(() => labelFor(xAxisChoice), [labelFor, xAxisChoice])
   const yLabel = React.useMemo(() => labelFor(yAxisChoice), [labelFor, yAxisChoice])
 
-  const hasSecond = React.useMemo(() => Array.isArray(rows2) && rows2.length > 0 && !!username2, [rows2, username2])
+  const palette = React.useMemo(
+    () => [
+      "var(--sidebar-primary)",
+      "rgb(20,184,166)",
+      "rgb(59,130,246)",
+      "rgb(168,85,247)",
+      "rgb(234,179,8)",
+      "rgb(239,68,68)",
+      "rgb(34,197,94)",
+    ],
+    []
+  )
 
   const datasets = React.useMemo(
     () =>
-      hasSecond
-        ? [
-            { label: `u/${username || "user1"}`, data: all1, color: "var(--sidebar-primary)" },
-            { label: `u/${username2 || "user2"}`, data: all2, color: "rgb(20,184,166)" },
-          ]
-        : [{ label: `u/${username || "user"}`, data: all1, color: "var(--sidebar-primary)" }],
-    [hasSecond, all1, all2, username, username2]
+      mappedUsers.map((u, i) => ({
+        label: `u/${u.username}`,
+        data: u.data,
+        color: palette[i % palette.length],
+      })),
+    [mappedUsers, palette]
   )
 
   const autoMaxFor = React.useCallback(
     (k: AxisKey) => {
-      const vals = [...all1, ...all2].map(d => Number((d as any)[k] ?? 0))
+      const vals = mappedUsers.flatMap((u) => u.data.map((d) => Number((d as any)[k] ?? 0)))
       const max = vals.length ? Math.max(...vals) : 0
       return Math.ceil((max || 10) * 1.05)
     },
-    [all1, all2]
+    [mappedUsers]
   )
 
   const AxisDomainControl: React.FC<{
@@ -198,7 +210,7 @@ export default function ScatterPlotSection({
     )
   }
 
-  if (!rows || rows.length === 0) return null
+  if (!datasets.length) return null
 
   const autoX = autoMaxFor(xKey)
   const autoY = autoMaxFor(yKey)
@@ -208,7 +220,7 @@ export default function ScatterPlotSection({
     <div className="rounded-lg border border-border bg-card">
       <header
         className="p-6 cursor-pointer flex justify-between items-center"
-        onClick={() => setIsOpen(v => !v)}
+        onClick={() => setIsOpen((v) => !v)}
         aria-expanded={isOpen}
         aria-controls="scatterplot-content"
       >
@@ -225,22 +237,14 @@ export default function ScatterPlotSection({
             aria-hidden="true"
             style={{ color: "var(--sidebar-primary)" }}
           >
-            {/* axes */}
             <path d="M3 21h18M3 21V3" />
-            {/* points */}
             <circle cx="9" cy="15" r="1.5" fill="currentColor" />
             <circle cx="13" cy="9" r="1.5" fill="currentColor" />
             <circle cx="18" cy="13" r="1.5" fill="currentColor" />
           </svg>
           <h2 className="text-xl font-bold">{`Subreddit Performance: ${yLabel} vs. ${xLabel}`}</h2>
         </div>
-        <svg
-          className={`w-6 h-6 transition-transform duration-300 ${isOpen ? "rotate-180" : ""}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          xmlns="http://www.w3.org/2000/svg"
-        >
+        <svg className={`w-6 h-6 transition-transform duration-300 ${isOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </header>
@@ -259,10 +263,18 @@ export default function ScatterPlotSection({
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-muted-foreground">Average Type:</span>
                 <div className="flex rounded bg-muted p-1">
-                  <button onClick={() => setAverageMetricKey("avg")} className={`px-3 py-1 text-sm rounded ${averageMetricKey === "avg" ? "bg-card text-foreground font-semibold shadow" : "text-muted-foreground"}`}>
+                  <button
+                    type="button"
+                    onClick={() => setAverageMetricKey("avg")}
+                    className={`px-3 py-1 text-sm rounded ${averageMetricKey === "avg" ? "bg-card text-foreground font-semibold shadow" : "text-muted-foreground"}`}
+                  >
                     Mean Average
                   </button>
-                  <button onClick={() => setAverageMetricKey("median")} className={`px-3 py-1 text-sm rounded ${averageMetricKey === "median" ? "bg-card text-foreground font-semibold shadow" : "text-muted-foreground"}`}>
+                  <button
+                    type="button"
+                    onClick={() => setAverageMetricKey("median")}
+                    className={`px-3 py-1 text-sm rounded ${averageMetricKey === "median" ? "bg-card text-foreground font-semibold shadow" : "text-muted-foreground"}`}
+                  >
                     Median Average
                   </button>
                 </div>

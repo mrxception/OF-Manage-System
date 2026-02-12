@@ -1,3 +1,4 @@
+// scatter-plot.tsx
 "use client"
 
 import React, { useMemo } from "react"
@@ -46,7 +47,9 @@ const CustomTooltip = ({ active, payload }: any) => {
     const showMembers = Number(d.members ?? d.Subscriber_Members ?? d.Subreddit_Subscribers ?? 0) > 0
     return (
       <div className="bg-white/80 dark:bg-gray-900/80 p-3 rounded-md border border-border shadow-lg">
-        <p className="font-bold" style={{ color: payload[0]?.fill }}>{d.subreddit}</p>
+        <p className="font-bold" style={{ color: payload[0]?.fill }}>
+          {d.subreddit}
+        </p>
         {payload[0] && <p className="text-sm">{`${payload[0].name}: ${Number(payload[0].value).toLocaleString()}`}</p>}
         {payload[1] && <p className="text-sm">{`${payload[1].name}: ${Number(payload[1].value).toLocaleString()}`}</p>}
         {showMembers && <p className="text-sm">{`Subscribers: ${Number(d.members ?? d.Subreddit_Subscribers ?? 0).toLocaleString()}`}</p>}
@@ -66,7 +69,19 @@ export default function ScatterPlot({
   yAxisLabel,
   height = 500,
 }: Props) {
-  const palette = useMemo(() => ["var(--sidebar-primary)", "rgb(20,184,166)"], [])
+  const palette = useMemo(
+    () => [
+      "var(--sidebar-primary)",
+      "rgb(20,184,166)",
+      "rgb(59,130,246)",
+      "rgb(168,85,247)",
+      "rgb(234,179,8)",
+      "rgb(239,68,68)",
+      "rgb(34,197,94)",
+    ],
+    []
+  )
+
   const all = useMemo(() => datasets.flatMap((d) => d.data || []), [datasets])
   const hasMembers = useMemo(() => all.some((p) => Number(p?.members ?? p?.Subreddit_Subscribers ?? 0) > 0), [all])
 
@@ -100,6 +115,7 @@ export default function ScatterPlot({
     xAxis === "Total_Posts" && Number.isFinite(finalX[1]) && finalX[1] <= 15
       ? Array.from({ length: Math.max(0, Math.floor(finalX[1])) }, (_, i) => i + 1)
       : undefined
+
   const computedTickCount = unitTicks ? undefined : 12
 
   return (
@@ -118,9 +134,7 @@ export default function ScatterPlot({
           allowDecimals={false}
           ticks={unitTicks}
           interval={unitTicks ? 0 : "preserveEnd"}
-          tickFormatter={(t) =>
-            new Intl.NumberFormat(undefined, { maximumFractionDigits: 0, minimumFractionDigits: 0 }).format(Number(t))
-          }
+          tickFormatter={(t) => new Intl.NumberFormat(undefined, { maximumFractionDigits: 0, minimumFractionDigits: 0 }).format(Number(t))}
         >
           <Label value={xAxisLabel} offset={-30} position="insideBottom" fill={tickColor} style={{ textAnchor: "middle" }} />
         </XAxis>
@@ -141,16 +155,19 @@ export default function ScatterPlot({
         {hasMembers && <ZAxis dataKey="members" range={[50, 800]} name="Subscribers" />}
         <Tooltip cursor={{ strokeDasharray: "3 3" }} content={<CustomTooltip />} />
         {datasets.length > 1 && <Legend verticalAlign="top" height={36} iconSize={10} />}
-        {filtered.map((ds, i) => (
-          <Scatter
-            key={i}
-            name={ds.label || `Series ${i + 1}`}
-            data={ds.data}
-            fill={ds.color || palette[i % palette.length]}
-            stroke={ds.color || palette[i % palette.length]}
-            fillOpacity={0.75}
-          />
-        ))}
+        {filtered.map((ds, i) => {
+          const c = ds.color || palette[i % palette.length]
+          return (
+            <Scatter
+              key={i}
+              name={ds.label || `Series ${i + 1}`}
+              data={ds.data}
+              fill={c}
+              stroke={c}
+              fillOpacity={0.75}
+            />
+          )
+        })}
       </ScatterChart>
     </ResponsiveContainer>
   )

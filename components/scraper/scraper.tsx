@@ -15,22 +15,32 @@ import PdfSection from "./pdf-section"
 
 type ModelOption = { id: string; name: string; username: string }
 type ManagerOption = { id: string; name: string; models: ModelOption[] }
+type CompareSlot = { managerId: string; modelId: string }
+
+type TS = {
+  upvotes: Array<{ date: string; [k: string]: number | string | null }>
+  comments: Array<{ date: string; [k: string]: number | string | null }>
+  subreddits: string[]
+}
+
+type UserDataset = {
+  username: string
+  rows: any[]
+  rawRows?: any[] | null
+  timeSeries?: TS | null
+}
 
 export default function Scraper() {
   const [managers, setManagers] = useState<ManagerOption[]>([])
   const [managersLoading, setManagersLoading] = useState(true)
   const [managersError, setManagersError] = useState<string | null>(null)
 
-  const [compareEnabled, setCompareEnabled] = useState(false)
-
   const [managerId, setManagerId] = useState("")
   const [modelId, setModelId] = useState("")
 
-  const [managerId2, setManagerId2] = useState("")
-  const [modelId2, setModelId2] = useState("")
+  const [comparisons, setComparisons] = useState<CompareSlot[]>([])
 
-  const [runUsername2, setRunUsername2] = useState("")
-  const [runUsername, setRunUsername] = useState("")
+  const [runUsernames, setRunUsernames] = useState<string[]>([])
 
   const dateRange = "all"
   const limit = 100
@@ -41,19 +51,30 @@ export default function Scraper() {
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState("Idle")
   const [msg, setMsg] = useState<{ type: string; text: string } | null>(null)
-  const [preview, setPreview] = useState<any[]>([])
-  const [preview2, setPreview2] = useState<any[] | null>(null)
-  const [rawRows, setRawRows] = useState<any[] | null>(null)
-  const [rawRows2, setRawRows2] = useState<any[] | null>(null)
+
+  const [usersData, setUsersData] = useState<UserDataset[]>([])
+
   const [spanDays, setSpanDays] = useState<number | null>(null)
   const sidRef = useRef(globalThis.crypto?.randomUUID?.() ? crypto.randomUUID() : String(Math.random()))
   const progRef = useRef<HTMLElement>(null)
-  const [timeSeries, setTimeSeries] = useState<{ upvotes: Array<{ date: string; [k: string]: number | string | null }>; comments: Array<{ date: string; [k: string]: number | string | null }>; subreddits: string[] } | null>(null)
-  const [timeSeries2, setTimeSeries2] = useState<{ upvotes: Array<{ date: string; [k: string]: number | string | null }>; comments: Array<{ date: string; [k: string]: number | string | null }>; subreddits: string[] } | null>(null)
+
   const [insights, setInsights] = useState<string[]>([])
+
   type AxisDomain = [number, number] | ["auto", number] | [number, "auto"] | ["auto", "auto"]
-  type AxisChoice = "Total_Posts" | "Average_Upvotes" | "Avg_Comments_Per_Post" | "Total_Upvotes" | "Total_Comments" | "Subreddit_Subscribers"
-  type ScatterState = { xAxisChoice: AxisChoice; yAxisChoice: AxisChoice; averageMetricKey: "avg" | "median"; xDomain: AxisDomain; yDomain: AxisDomain }
+  type AxisChoice =
+    | "Total_Posts"
+    | "Average_Upvotes"
+    | "Avg_Comments_Per_Post"
+    | "Total_Upvotes"
+    | "Total_Comments"
+    | "Subreddit_Subscribers"
+  type ScatterState = {
+    xAxisChoice: AxisChoice
+    yAxisChoice: AxisChoice
+    averageMetricKey: "avg" | "median"
+    xDomain: AxisDomain
+    yDomain: AxisDomain
+  }
   const [scatter, setScatter] = useState<ScatterState | undefined>(undefined)
   const [showTiers, setShowTiers] = useState(false)
 
@@ -71,15 +92,17 @@ export default function Scraper() {
   }
 
   function getSelectedModel(mgrId: string, mdlId: string): ModelOption | null {
-    const mgr = managers.find(m => m.id === mgrId)
+    const mgr = managers.find((m) => m.id === mgrId)
     if (!mgr) return null
-    const mdl = mgr.models.find(mm => mm.id === mdlId)
+    const mdl = mgr.models.find((mm) => mm.id === mdlId)
     return mdl || null
   }
 
   useEffect(() => {
     const cleanup = () => {
-      fetch(`/api/scrape?sid=${encodeURIComponent(sidRef.current)}`, { method: "DELETE", keepalive: true }).catch(() => {})
+      fetch(`/api/scrape?sid=${encodeURIComponent(sidRef.current)}`, { method: "DELETE", keepalive: true }).catch(
+        () => {}
+      )
     }
     window.addEventListener("beforeunload", cleanup)
     return () => cleanup()
@@ -118,49 +141,6 @@ export default function Scraper() {
     }
   }, [])
 
-  async function downloadExport(
-    kind: "data" | "raw",
-    target: "u1" | "u2",
-    opts: { inclVote: boolean; inclComm: boolean; inclMed: boolean; inclSubs: boolean; inclPER: boolean }
-  ) {
-    try {
-      const payload: any = {
-        kind,
-        username: target === "u2" ? runUsername2 : runUsername,
-        inclSubs: 1,
-        inclVote: opts.inclVote ? 1 : 0,
-        inclComm: opts.inclComm ? 1 : 0,
-        inclPER: opts.inclPER ? 1 : 0,
-        inclMed: opts.inclMed ? 1 : 0,
-      }
-      if (kind === "data") {
-        payload.rows = target === "u2" ? preview2 || [] : preview
-      } else {
-        payload.rawRows = target === "u2" ? rawRows2 || [] : rawRows || []
-      }
-      const res = await fetch("/api/export", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
-      if (!res.ok) throw new Error("Export failed")
-      const blob = await res.blob()
-      const cd = res.headers.get("content-disposition") || ""
-      const m = /filename\*=UTF-8''([^;]+)|filename="([^"]+)"/i.exec(cd)
-      const fname = decodeURIComponent(m?.[1] || m?.[2] || `${payload.username}_${kind}.xlsx`)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = fname
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-    } catch {
-      setMsg({ type: "err", text: "Failed to export file." })
-    }
-  }
-
   async function readServerError(res: Response) {
     let reason = res.statusText
     try {
@@ -188,21 +168,67 @@ export default function Scraper() {
     return { ok: true as const, notFound: false as const, payload: j?.payload ?? null }
   }
 
-  function applyPayload(p: any) {
-    setPreview(Array.isArray(p.preview) ? p.preview : [])
-    setPreview2(Array.isArray(p.preview2) ? p.preview2 : null)
-    setRawRows(Array.isArray(p.rawRows) ? p.rawRows : null)
-    setRawRows2(Array.isArray(p.rawRows2) ? p.rawRows2 : null)
-    setTimeSeries(p.timeSeries ?? null)
-    setTimeSeries2(p.timeSeries2 ?? null)
-    setSpanDays(typeof p.datasetSpanDays === "number" && isFinite(p.datasetSpanDays) ? p.datasetSpanDays : null)
+  function normalizeUserFromPayload(username: string, payload: any): UserDataset {
+    const rows = Array.isArray(payload?.preview) ? payload.preview : Array.isArray(payload?.preview2) ? payload.preview2 : []
+    const rawRows = Array.isArray(payload?.rawRows) ? payload.rawRows : Array.isArray(payload?.rawRows2) ? payload.rawRows2 : null
+    const timeSeries = payload?.timeSeries ?? payload?.timeSeries2 ?? null
+    return { username, rows, rawRows, timeSeries }
+  }
+
+  function applyMergedUsers(mergedUsers: UserDataset[], meta?: any) {
+    setUsersData(mergedUsers)
+    setSpanDays(typeof meta?.datasetSpanDays === "number" && isFinite(meta.datasetSpanDays) ? meta.datasetSpanDays : null)
+  }
+
+  async function downloadExport(
+    kind: "data" | "raw",
+    userIndex: number,
+    opts: { inclVote: boolean; inclComm: boolean; inclMed: boolean; inclSubs: boolean; inclPER: boolean }
+  ) {
+    const u = usersData[userIndex]
+
+    if (!u?.username) {
+      setMsg({ type: "err", text: "No user selected for export." })
+      return
+    }
+
+    const payload: any = {
+      kind,
+      username: u.username,
+      inclSubs: 1,
+      inclVote: opts.inclVote ? 1 : 0,
+      inclComm: opts.inclComm ? 1 : 0,
+      inclPER: opts.inclPER ? 1 : 0,
+      inclMed: opts.inclMed ? 1 : 0,
+    }
+
+    if (kind === "data") payload.rows = u.rows || []
+    else payload.rawRows = u.rawRows || []
+
+    const res = await fetch("/api/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) throw new Error("Export failed")
+
+    const blob = await res.blob()
+    const cd = res.headers.get("content-disposition") || ""
+    const m = /filename\*=UTF-8''([^;]+)|filename="([^"]+)"/i.exec(cd)
+    const fname = decodeURIComponent(m?.[1] || m?.[2] || `${payload.username}_${kind}.xlsx`)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = fname
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
   }
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const se = e.nativeEvent as SubmitEvent
-    console.log("SUBMIT FIRED — submitter:", se?.submitter)
-    console.log("SUBMIT FIRED — active element:", document.activeElement)
+
     if (managersLoading) {
       setStatus("Loading managers…")
       setMsg({ type: "err", text: "Managers are still loading. Please wait." })
@@ -215,25 +241,30 @@ export default function Scraper() {
       return
     }
 
-    const m1 = getSelectedModel(managerId, modelId)
-    const m2 = compareEnabled ? getSelectedModel(managerId2, modelId2) : null
-
-    if (!m1) {
+    const primary = getSelectedModel(managerId, modelId)
+    if (!primary) {
       setStatus("Please select a manager and model.")
       setMsg({ type: "err", text: "Please select a manager and model." })
       return
     }
-    if (compareEnabled && !m2) {
-      setStatus("Please select the comparison manager and model.")
-      setMsg({ type: "err", text: "Please select the comparison manager and model." })
+
+    const resolvedComparisons = comparisons.map((c) => getSelectedModel(c.managerId, c.modelId))
+    if (comparisons.length > 0 && resolvedComparisons.some((x) => !x)) {
+      setStatus("Please complete all comparison selections (manager + model).")
+      setMsg({ type: "err", text: "Please complete all comparison selections (manager + model)." })
       return
     }
 
-    const frozen1 = (m1.username || "").trim()
-    const frozen2 = compareEnabled ? (m2?.username || "").trim() : ""
+    const frozen1 = (primary.username || "").trim()
+    const frozenCompUsernames = resolvedComparisons
+      .filter((x): x is ModelOption => !!x)
+      .map((x) => (x.username || "").trim())
+      .filter(Boolean)
+      .slice(0, 5)
 
-    setRunUsername(frozen1)
-    setRunUsername2(frozen2)
+    const frozenAll = [frozen1, ...frozenCompUsernames].filter(Boolean)
+
+    setRunUsernames(frozenAll)
     setRunLimit(limit)
     setMsg(null)
 
@@ -246,41 +277,20 @@ export default function Scraper() {
 
     setStatus("Loading saved results…")
 
-    const saved1 = await loadSavedByUsername(token, frozen1)
-    const saved2 = compareEnabled && frozen2 ? await loadSavedByUsername(token, frozen2) : null
+    const saved = await Promise.all(frozenAll.map((u) => loadSavedByUsername(token, u)))
 
-    const found1 = saved1.ok && saved1.payload
-    const found2 = !!saved2?.ok && !!saved2?.payload
-
-    if (found1 && (!compareEnabled || found2)) {
-      const merged: any = { ...(saved1.payload || {}) }
-      if (compareEnabled && saved2?.payload) {
-        merged.preview2 = saved2.payload.preview ?? saved2.payload.preview2 ?? null
-        merged.rawRows2 = saved2.payload.rawRows ?? saved2.payload.rawRows2 ?? null
-        merged.timeSeries2 = saved2.payload.timeSeries ?? saved2.payload.timeSeries2 ?? null
-      }
-      applyPayload(merged)
+    const allFound = saved.every((x) => x.ok && x.payload)
+    if (allFound) {
+      const mergedUsers = frozenAll.map((uname, i) => normalizeUserFromPayload(uname, saved[i].payload))
+      applyMergedUsers(mergedUsers, saved[0].payload)
       setProgress(1)
       setStatus("Ready.")
       return
     }
 
-    if (found1 && compareEnabled && !found2) {
-      setStatus("Primary loaded. Comparison not found—starting scrape…")
-    } else if (!found1 && compareEnabled && found2) {
-      setStatus("Comparison loaded. Primary not found—starting scrape…")
-    } else if (!found1 && !found2) {
-      setStatus("No saved results—starting scrape…")
-    } else if (!compareEnabled && !found1) {
-      setStatus("No saved result—starting scrape…")
-    }
-
-    if (!saved1.ok && !saved1.notFound) {
-      setMsg({ type: "err", text: saved1.reason || "Failed to load saved results." })
-      return
-    }
-    if (compareEnabled && saved2 && !saved2.ok && !saved2.notFound) {
-      setMsg({ type: "err", text: saved2.reason || "Failed to load saved comparison results." })
+    const anyHardError = saved.find((x) => !x.ok && !x.notFound)
+    if (anyHardError) {
+      setMsg({ type: "err", text: (anyHardError as any).reason || "Failed to load saved results." })
       return
     }
 
@@ -322,10 +332,7 @@ export default function Scraper() {
 
     setStatus("Starting…")
     setProgress(0)
-    setPreview([])
-    setPreview2(null)
-    setRawRows(null)
-    setRawRows2(null)
+    setUsersData([])
     setSpanDays(null)
 
     let stopPoll = false
@@ -343,7 +350,7 @@ export default function Scraper() {
             if (p.done && frac < 1) setProgress(1)
           }
         } catch {}
-        await new Promise(r => setTimeout(r, 400))
+        await new Promise((r) => setTimeout(r, 400))
       }
     })()
 
@@ -354,7 +361,7 @@ export default function Scraper() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           username: frozen1,
-          username2: frozen2 || undefined,
+          compareUsernames: frozenCompUsernames,
           limit,
           dateRange,
           inclSubs: 1,
@@ -372,14 +379,35 @@ export default function Scraper() {
         setMsg({ type: "err", text: reason })
         return
       }
+
       const payload = await res.json()
-      applyPayload(payload)
+
+      const mergedUsers: UserDataset[] = []
+      mergedUsers.push({ username: frozen1, rows: Array.isArray(payload?.preview) ? payload.preview : [], rawRows: Array.isArray(payload?.rawRows) ? payload.rawRows : null, timeSeries: payload?.timeSeries ?? null })
+
+      const previews: any[] = Array.isArray(payload?.previews) ? payload.previews : []
+      const rawRowsList: any[] = Array.isArray(payload?.rawRowsList) ? payload.rawRowsList : []
+      const timeSeriesList: any[] = Array.isArray(payload?.timeSeriesList) ? payload.timeSeriesList : []
+
+      frozenCompUsernames.forEach((uname, idx) => {
+        const rows = Array.isArray(previews[idx]) ? previews[idx] : Array.isArray(payload?.[`preview${idx + 2}`]) ? payload[`preview${idx + 2}`] : []
+        const raw = Array.isArray(rawRowsList[idx]) ? rawRowsList[idx] : Array.isArray(payload?.[`rawRows${idx + 2}`]) ? payload[`rawRows${idx + 2}`] : null
+        const ts = timeSeriesList[idx] ?? payload?.[`timeSeries${idx + 2}`] ?? null
+        mergedUsers.push({ username: uname, rows, rawRows: raw, timeSeries: ts })
+      })
+
+      applyMergedUsers(mergedUsers, payload)
       setProgress(1)
       setStatus("Ready.")
     } catch (err: any) {
       setProgress(0)
       setStatus(err?.message || "Failed.")
-      setMsg({ type: "err", text: `Failed: ${err?.message?.includes?.("User not found") ? "Reddit username not found." : err?.message || "Unknown error"}` })
+      setMsg({
+        type: "err",
+        text: `Failed: ${
+          err?.message?.includes?.("User not found") ? "Reddit username not found." : err?.message || "Unknown error"
+        }`,
+      })
     } finally {
       stopPoll = true
       setBusy(false)
@@ -388,15 +416,26 @@ export default function Scraper() {
 
   const uiBusy = busy || managersLoading
   const uiStatus = managersError ? managersError : status
-  const hasRows = Array.isArray(preview) && preview.length > 0
+
+  const hasRows = usersData[0]?.rows && Array.isArray(usersData[0].rows) && usersData[0].rows.length > 0
+
+  const usersForSections = usersData.map((u) => ({ username: u.username, rows: u.rows }))
+  const usernamesForPdf = usersData.map((u) => u.username)
+  const primaryUsername = usernamesForPdf[0] || ""
+  const secondaryUsername = usernamesForPdf[1] || ""
+
+  const timeSeriesPrimary = usersData[0]?.timeSeries ?? undefined
+  const timeSeriesSecondary = usersData[1]?.timeSeries ?? undefined
 
   return (
     <div className={`min-h-screen bg-background p-4 md:p-6 ${s.bgPattern}`}>
       <div className="mx-auto max-w-7xl space-y-6">
-        {/* <div className="rounded-lg border border-border bg-card p-4 md:p-6"> */}
         <div className="rounded-lg p-4 md:p-6">
           <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-2">Subreddit Performance Analysis (SPA)</h1>
-          <p className="text-sm md:text-base text-muted-foreground mb-6">Select a manager and model to analyze subreddit performance. Optionally compare against a second model.</p>
+          <p className="text-sm md:text-base text-muted-foreground mb-6">
+            Select a manager and model to analyze subreddit performance. Add up to 5 comparison models.
+          </p>
+
           <Form
             progRef={progRef}
             status={uiStatus}
@@ -410,32 +449,17 @@ export default function Scraper() {
             }}
             modelId={modelId}
             setModelId={setModelId}
-            compareEnabled={compareEnabled}
-            setCompareEnabled={(v) => {
-              setCompareEnabled(v)
-              if (!v) {
-                setManagerId2("")
-                setModelId2("")
-              }
-            }}
-            managerId2={managerId2}
-            setManagerId2={(v) => {
-              setManagerId2(v)
-              setModelId2("")
-            }}
-            modelId2={modelId2}
-            setModelId2={setModelId2}
+            comparisons={comparisons}
+            setComparisons={setComparisons}
             s={s}
           />
         </div>
 
-        <KPI rows={preview} rows2={preview2 ?? undefined} dateRange={dateRange} limit={runLimit} inclPER={false} username={runUsername} username2={runUsername2} />
+        <KPI users={usersForSections} dateRange={dateRange} limit={runLimit} inclPER={false} />
+
         <ExcelSheetSection
           hasTop10={hasRows}
-          username={runUsername}
-          username2={runUsername2}
-          rows={preview}
-          rows2={preview2 ?? undefined}
+          users={usersForSections}
           fmtUTC={(iso) => {
             if (!iso) return ""
             const d = new Date(iso)
@@ -449,27 +473,46 @@ export default function Scraper() {
           s={s}
           defaults={runDefaults}
           subsAvailable={true}
-          onExport={(kind, target, opts) => downloadExport(kind, target, opts)}
+          onExport={(kind, userIndex, opts) => downloadExport(kind, userIndex, opts)}
         />
-        <ScatterPlotSection rows={preview} rows2={preview2 ?? undefined} username={runUsername} username2={runUsername2} s={s} onScatterState={setScatter} />
-        <BarChartSection rows={preview} rows2={preview2 ?? undefined} username={runUsername} username2={runUsername2} s={s} averageMetricKey={averageMetricKey} onMetricChange={setAverageMetricKey} />
-        <BoxPlotSection rows={preview} rows2={preview2 ?? undefined} username={runUsername} username2={runUsername2} s={s} averageMetricKey={averageMetricKey} />
-        <LineChartSection username={runUsername} username2={runUsername2} rows={preview} rows2={preview2 ?? undefined} timeSeries={timeSeries ?? undefined} timeSeries2={timeSeries2 ?? undefined} />
-        {/* <KeyInsightsSection rows={preview} onInsights={setInsights} /> */}
+
+        <ScatterPlotSection users={usersForSections} s={s} onScatterState={setScatter} />
+
+        <BarChartSection users={usersForSections} s={s} averageMetricKey={averageMetricKey} onMetricChange={setAverageMetricKey} />
+
+        <BoxPlotSection users={usersForSections} s={s} averageMetricKey={averageMetricKey} />
+
+        <LineChartSection
+          rows={usersData[0]?.rows || []}
+          users={usersData
+            .filter((u) => u?.username && u?.timeSeries)
+            .map((u) => ({
+              username: u.username,
+              timeSeries: u.timeSeries as TS,
+            }))}
+        />
+
         <PdfSection
-          username={runUsername}
-          username2={runUsername2}
+          username={primaryUsername}
+          username2={secondaryUsername}
           dateRange={dateRange}
-          rows={preview}
-          rows2={preview2 ?? []}
+          rows={usersData[0]?.rows || []}
+          rows2={(usersData[1]?.rows as any[]) || []}
           excelFlags={runDefaults}
-          timeSeries={timeSeries ?? undefined}
-          timeSeries2={timeSeries2 ?? undefined}
+          timeSeries={timeSeriesPrimary}
+          timeSeries2={timeSeriesSecondary}
           lineMetric="avg_upvotes"
           lineGranularity="day"
           insights={insights}
           scatter={scatter}
-          selectors={{ kpi: "#kpi-section", table: "#excel-table", scatter: "#scatter-mean-vs-posts", bar: "#bar-top25-upvotes", line: "#line-performance-over-time", insights: "#key-insights-section" }}
+          selectors={{
+            kpi: "#kpi-section",
+            table: "#excel-table",
+            scatter: "#scatter-mean-vs-posts",
+            bar: "#bar-top25-upvotes",
+            line: "#line-performance-over-time",
+            insights: "#key-insights-section",
+          }}
         />
       </div>
     </div>

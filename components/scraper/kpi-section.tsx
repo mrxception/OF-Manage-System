@@ -3,25 +3,16 @@
 import React, { useMemo } from "react"
 import KPIItem from "./kpi-item"
 
+type KPIUser = { username: string; rows: any[] }
+
 interface KPIProps {
-  rows?: any[]
-  rows2?: any[]
+  users?: KPIUser[]
   dateRange?: string
   limit?: number
   inclPER?: boolean
-  username?: string
-  username2?: string
 }
 
-export default function KPI({
-  rows = [],
-  rows2,
-  dateRange = "all",
-  limit = 1000,
-  inclPER = false,
-  username = "",
-  username2 = "",
-}: KPIProps) {
+export default function KPI({ users = [], dateRange = "all", limit = 1000, inclPER = false }: KPIProps) {
   const compute = (arrIn: any[]) => {
     const arr = Array.isArray(arrIn) ? arrIn : []
     const sum = (xs: any[], f: (x: any) => number) => xs.reduce((t, x) => t + (Number(f(x)) || 0), 0)
@@ -29,7 +20,8 @@ export default function KPI({
     const hasMedian = arr.some((r) => typeof r.Median_Upvotes_Per_Post === "number")
     const avgKey = hasMedian ? "Median_Upvotes_Per_Post" : "Avg_Upvotes_Per_Post"
     const totalPosts = toInt(sum(arr, (r) => r.Total_Posts || 0))
-    const timeNote = dateRange === "all" ? `up to ${limit} posts` : `in ${dateRange} days (max ${limit})`
+    const timeNote = "The number of posts from the past month"
+    //const timeNote = dateRange === "all" ? `up to ${limit} posts` : `in ${dateRange} days (max ${limit})`
     const haveTotals = arr.some((r) => typeof r.Total_Upvotes === "number")
     const overallUpvotes = toInt(
       haveTotals ? sum(arr, (r) => r.Total_Upvotes || 0) : sum(arr, (r) => (r[avgKey] || 0) * (r.Total_Posts || 0))
@@ -56,37 +48,39 @@ export default function KPI({
     }
   }
 
-  const k1 = useMemo(() => compute(rows), [rows, dateRange, limit, inclPER])
-  const k2 = useMemo(() => (rows2 && rows2.length ? compute(rows2) : null), [rows2, dateRange, limit, inclPER])
-  const dual = Boolean(k2 && username2)
+  const normalized = useMemo(() => {
+    const arr = Array.isArray(users) ? users : []
+    return arr
+      .map((u) => ({ username: (u?.username || "").trim() || "User", rows: Array.isArray(u?.rows) ? u.rows : [] }))
+      .filter((u) => u.rows.length > 0)
+  }, [users])
 
-  if (!rows || rows.length === 0) return null
+  const computed = useMemo(() => normalized.map((u) => ({ ...u, k: compute(u.rows) })), [normalized, dateRange, limit, inclPER])
 
-  if (!dual) {
+  if (computed.length === 0) return null
+
+  if (computed.length === 1) {
+    const u = computed[0]
     return (
-      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPIItem icon="search" title="Total Posts Analyzed" value={k1.totalPosts.toLocaleString()} note={k1.timeNote} ariaLabel="Total posts analyzed" />
-        <KPIItem icon="trend" title="Overall Upvote Score" value={k1.overallUpvotes.toLocaleString()} note="Sum of upvotes across analyzed posts" ariaLabel="Overall upvote score" />
-        <KPIItem icon="trophy" title="Top Subreddit" value={k1.topSubreddit} note={`Highest ${k1.avgKeyLabel}`} ariaLabel="Top subreddit by average upvotes" />
-        <KPIItem icon="target" title="Biggest Opportunity" value={k1.biggestOpportunity} note="High potential performance but under utilized" ariaLabel="Biggest opportunity subreddit" />
+      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" id="kpi-section">
+        <KPIItem icon="search" title="Total Posts Analyzed" value={u.k.totalPosts.toLocaleString()} note={u.k.timeNote} ariaLabel="Total posts analyzed" />
+        <KPIItem icon="trend" title="Overall Upvote Score" value={u.k.overallUpvotes.toLocaleString()} note="Sum of upvotes across analyzed posts" ariaLabel="Overall upvote score" />
+        <KPIItem icon="trophy" title="Top Subreddit" value={u.k.topSubreddit} note={`Highest ${u.k.avgKeyLabel}`} ariaLabel="Top subreddit by average upvotes" />
+        <KPIItem icon="target" title="Biggest Opportunity" value={u.k.biggestOpportunity} note="High potential performance but under utilized" ariaLabel="Biggest opportunity subreddit" />
       </div>
     )
   }
-  
+
   return (
-    <div className="mt-4 space-y-4">
-      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPIItem icon="search" title={`Total Posts • ${username || "User 1"}`} value={k1.totalPosts.toLocaleString()} note={k1.timeNote} ariaLabel="Total posts analyzed user 1" />
-        <KPIItem icon="trend" title={`Overall Upvote Score • ${username || "User 1"}`} value={k1.overallUpvotes.toLocaleString()} note="Sum of upvotes across analyzed posts" ariaLabel="Overall upvote score user 1" />
-        <KPIItem icon="trophy" title={`Top Subreddit • ${username || "User 1"}`} value={k1.topSubreddit} note={`Highest ${k1.avgKeyLabel}`} ariaLabel="Top subreddit by average upvotes user 1" />
-        <KPIItem icon="target" title={`Biggest Opportunity • ${username || "User 1"}`} value={k1.biggestOpportunity} note="High potential performance but under utilized" ariaLabel="Biggest opportunity subreddit user 1" />
-      </div>
-      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPIItem icon="search" title={`Total Posts • ${username2 || "User 2"}`} value={k2!.totalPosts.toLocaleString()} note={k2!.timeNote} ariaLabel="Total posts analyzed user 2" />
-        <KPIItem icon="trend" title={`Overall Upvote Score • ${username2 || "User 2"}`} value={k2!.overallUpvotes.toLocaleString()} note="Sum of upvotes across analyzed posts" ariaLabel="Overall upvote score user 2" />
-        <KPIItem icon="trophy" title={`Top Subreddit • ${username2 || "User 2"}`} value={k2!.topSubreddit} note={`Highest ${k2!.avgKeyLabel}`} ariaLabel="Top subreddit by average upvotes user 2" />
-        <KPIItem icon="target" title={`Biggest Opportunity • ${username2 || "User 2"}`} value={k2!.biggestOpportunity} note="High potential performance but under utilized" ariaLabel="Biggest opportunity subreddit user 2" />
-      </div>
+    <div className="mt-4 space-y-6" id="kpi-section">
+      {computed.map((u, idx) => (
+        <div key={`${u.username}-${idx}`} className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <KPIItem icon="search" title={`Total Posts • ${u.username}`} value={u.k.totalPosts.toLocaleString()} note={u.k.timeNote} ariaLabel={`Total posts analyzed ${u.username}`} />
+          <KPIItem icon="trend" title={`Overall Upvote Score • ${u.username}`} value={u.k.overallUpvotes.toLocaleString()} note="Sum of upvotes across analyzed posts" ariaLabel={`Overall upvote score ${u.username}`} />
+          <KPIItem icon="trophy" title={`Top Subreddit • ${u.username}`} value={u.k.topSubreddit} note={`Highest ${u.k.avgKeyLabel}`} ariaLabel={`Top subreddit by average upvotes ${u.username}`} />
+          <KPIItem icon="target" title={`Biggest Opportunity • ${u.username}`} value={u.k.biggestOpportunity} note="High potential performance but under utilized" ariaLabel={`Biggest opportunity subreddit ${u.username}`} />
+        </div>
+      ))}
     </div>
   )
 }

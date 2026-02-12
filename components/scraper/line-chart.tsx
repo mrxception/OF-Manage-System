@@ -1,6 +1,6 @@
 "use client"
 
-import React from "react"
+import React, { useMemo } from "react"
 import {
   LineChart as RLineChart,
   Line,
@@ -20,9 +20,9 @@ interface Props {
   seriesKeys: string[]
   metricLabel: string
   domain: [number, number]
+  legend?: { label: string; color: string }[]
+  colorMap?: Record<string, string>
 }
-
-const TEAL = "rgb(20,184,166)"
 
 function fmtDate(d: string) {
   if (!d) return d
@@ -38,9 +38,9 @@ function fmtDate(d: string) {
   if (d.includes("/")) {
     const parts = d.split("/").map((x) => x.trim())
     if (parts.length === 3) {
-      let a = Number(parts[0])
-      let b = Number(parts[1])
-      let c = Number(parts[2])
+      const a = Number(parts[0])
+      const b = Number(parts[1])
+      const c = Number(parts[2])
       if (Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c)) {
         if (c > 1900) return `${a}/${b}/${c}`
         return `${Number(parts[2])}/${Number(parts[1])}/${Number(parts[0])}`
@@ -58,7 +58,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
       <ul className="mt-2 space-y-1 text-sm">
         {payload
           .slice()
-          .sort((a: any, b: any) => (b?.value ?? 0) - (a?.value ?? 0))
+          .sort((a: any, b: any) => (Number(b?.value ?? 0) || 0) - (Number(a?.value ?? 0) || 0))
           .map((pld: any, i: number) => (
             <li key={i} style={{ color: pld?.color ?? "inherit" }}>
               {`${pld.name}: ${Number(pld.value ?? 0).toLocaleString()}`}
@@ -69,43 +69,70 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   )
 }
 
-export default function PerformanceLineChart({ data, seriesKeys, metricLabel, domain }: Props) {
-  const cs = getComputedStyle(document.documentElement)
-  const tickColor = cs.getPropertyValue("--muted-foreground")?.trim() || "#6b7280"
-  const gridStrokeColor = "rgba(127,127,127,0.15)"
-  const primary = cs.getPropertyValue("--sidebar-primary")?.trim() || "#4F46E5"
+export default function PerformanceLineChart({ data, seriesKeys, metricLabel, domain, legend, colorMap }: Props) {
+  const tickColor = "var(--muted-foreground)"
+  const gridStroke = "color-mix(in oklch, var(--muted-foreground) 15%, transparent)"
+  const cs = typeof window !== "undefined" ? getComputedStyle(document.documentElement) : (null as any)
+  const primary = cs?.getPropertyValue("--sidebar-primary")?.trim() || "var(--sidebar-primary)"
 
-  const colors: Record<string, string> = {}
-  if (seriesKeys[0]) colors[seriesKeys[0]] = primary
-  if (seriesKeys[1]) colors[seriesKeys[1]] = TEAL
+  const palette = useMemo(
+    () => [
+      primary,
+      "rgb(20,184,166)",
+      "rgb(59,130,246)",
+      "rgb(168,85,247)",
+      "rgb(234,179,8)",
+      "rgb(239,68,68)",
+      "rgb(34,197,94)",
+    ],
+    [primary]
+  )
+
+  const colors = useMemo(() => {
+    const m: Record<string, string> = {}
+    for (let i = 0; i < seriesKeys.length; i++) {
+      const k = seriesKeys[i]
+      const forced = colorMap?.[k]
+      m[k] = forced || palette[i % palette.length]
+    }
+    return m
+  }, [seriesKeys, palette, colorMap])
 
   const [min, max] = domain
-  const paddedDomain: [number, number] = [
-    min,
-    Math.ceil((max || 10) * 1.05),
-  ]
+  const paddedDomain: [number, number] = [min, Math.ceil((max || 10) * 1.05)]
+
+  const LegendContent = () => {
+    if (!legend || legend.length === 0) return null
+    return (
+      <div className="flex items-center gap-4 flex-wrap">
+        {legend.map((it) => (
+          <div key={it.label} className="flex items-center gap-2">
+            <span className="inline-block w-3 h-3 rounded-sm" style={{ background: it.color }} aria-hidden="true" />
+            <span className="text-sm text-muted-foreground">{it.label}</span>
+          </div>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <RLineChart data={data} margin={{ top: 6, right: 24, left: 40, bottom: 6 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke={gridStrokeColor} />
+      <RLineChart data={data} margin={{ top: legend?.length ? 10 : 6, right: 24, left: 40, bottom: 6 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke as any} />
         <XAxis dataKey="date" tick={{ fill: tickColor }} stroke={tickColor} tickFormatter={fmtDate} />
         <YAxis
           tick={{ fill: tickColor }}
           stroke={tickColor}
-          tickFormatter={(tick) => Number(tick).toLocaleString()}
+          tickFormatter={(t) => Number(t).toLocaleString()}
           domain={paddedDomain}
           allowDataOverflow
         >
-          <Label
-            value={metricLabel}
-            angle={-90}
-            position="insideLeft"
-            style={{ textAnchor: "middle", fill: tickColor }}
-          />
+          <Label value={metricLabel} angle={-90} position="insideLeft" style={{ textAnchor: "middle", fill: tickColor }} />
         </YAxis>
+
         <Tooltip content={<CustomTooltip />} />
-        <Legend iconSize={10} />
+        {legend?.length ? <Legend verticalAlign="top" align="left" height={36} content={<LegendContent />} /> : <Legend iconSize={10} />}
+
         {seriesKeys.map((k) => (
           <Line
             key={k}
