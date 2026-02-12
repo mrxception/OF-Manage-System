@@ -1,11 +1,12 @@
 "use client"
-import React, { useState } from "react"
+import React, { useMemo, useState } from "react"
 import { ComboBox, ComboBoxContent, ComboBoxItem, ComboBoxTrigger, ComboBoxValue } from "@/components/ui/combobox2"
 import { motion, AnimatePresence } from "framer-motion"
 import { Check } from "lucide-react"
 
 type ModelOption = { id: string; name: string; username: string }
 type ManagerOption = { id: string; name: string; models: ModelOption[] }
+type CompareSlot = { managerId: string; modelId: string }
 
 interface FormProps {
   onSubmit: (e: React.FormEvent) => void
@@ -19,12 +20,8 @@ interface FormProps {
   modelId: string
   setModelId: (v: string) => void
 
-  compareEnabled: boolean
-  setCompareEnabled: (v: boolean) => void
-  managerId2: string
-  setManagerId2: (v: string) => void
-  modelId2: string
-  setModelId2: (v: string) => void
+  comparisons: CompareSlot[]
+  setComparisons: (v: CompareSlot[] | ((prev: CompareSlot[]) => CompareSlot[])) => void
 
   s: { [key: string]: string }
 }
@@ -35,43 +32,68 @@ const steps = [
   { id: 3, name: "Review" },
 ]
 
+const MAX_COMPARISONS = 5
+
+const usernameForSelection = (mgrs: ManagerOption[], mgrId: string, mdlId: string) => {
+  if (!mgrId || !mdlId) return ""
+  const mgr = mgrs.find(m => m.id === mgrId)
+  const mdl = mgr?.models?.find(mm => mm.id === mdlId)
+  return (mdl?.username || "").trim()
+}
+
+const buildTakenUsernames = (mgrs: ManagerOption[], primaryMgrId: string, primaryModelId: string, comps: CompareSlot[]) => {
+  const set = new Set<string>()
+  const u1 = usernameForSelection(mgrs, primaryMgrId, primaryModelId)
+  if (u1) set.add(u1)
+  for (const c of comps) {
+    const u = usernameForSelection(mgrs, c.managerId, c.modelId)
+    if (u) set.add(u)
+  }
+  return set
+}
+
 export default function Form(props: FormProps) {
-  const {
-    onSubmit,
-    progRef,
-    status,
-    busy,
-    managers,
-    managerId,
-    setManagerId,
-    modelId,
-    setModelId,
-    compareEnabled,
-    setCompareEnabled,
-    managerId2,
-    setManagerId2,
-    modelId2,
-    setModelId2,
-    s,
-  } = props
+  const { onSubmit, progRef, status, busy, managers, managerId, setManagerId, modelId, setModelId, comparisons, setComparisons, s } = props
 
   const [currentStep, setCurrentStep] = useState(1)
 
   const mgrA = managers.find(m => m.id === managerId) || null
   const modelsA = mgrA?.models || []
+  const selectedModelA = modelsA.find(m => m.id === modelId)
 
-  const mgrB = managers.find(m => m.id === managerId2) || null
-  const modelsB = mgrB?.models || []
-
-  const addCompare = () => setCompareEnabled(true)
-  const removeCompare = () => {
-    setManagerId2("")
-    setModelId2("")
-    setCompareEnabled(false)
+  const addComparison = () => {
+    setComparisons((prev) => {
+      if (prev.length >= MAX_COMPARISONS) return prev
+      return [...prev, { managerId: "", modelId: "" }]
+    })
   }
 
-  const canProgressFromStep1 = managerId && modelId
-  const canProgressFromStep2 = !compareEnabled || (managerId2 && modelId2)
+  const removeComparison = (idx: number) => {
+    setComparisons((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  const updateComparison = (idx: number, patch: Partial<CompareSlot>) => {
+    setComparisons((prev) =>
+      prev.map((c, i) => {
+        if (i !== idx) return c
+        return { ...c, ...patch }
+      })
+    )
+  }
+
+  const modelsFor = useMemo(() => {
+    const map = new Map<string, ModelOption[]>()
+    for (const m of managers) map.set(m.id, m.models || [])
+    return map
+  }, [managers])
+
+  const takenUsernames = useMemo(
+    () => buildTakenUsernames(managers, managerId, modelId, comparisons),
+    [managers, managerId, modelId, comparisons]
+  )
+
+  const canProgressFromStep1 = !!managerId && !!modelId
+  const canProgressFromStep2 = comparisons.length === 0 || comparisons.every(c => !!c.managerId && !!c.modelId)
 
   const handleNext = () => {
     if (currentStep === 1 && canProgressFromStep1) setCurrentStep(2)
@@ -85,9 +107,6 @@ export default function Form(props: FormProps) {
   const handleReset = () => {
     if (typeof window !== "undefined") window.location.reload()
   }
-
-  const selectedModelA = modelsA.find(m => m.id === modelId)
-  const selectedModelB = modelsB.find(m => m.id === modelId2)
 
   return (
     <form onSubmit={(e) => e.preventDefault()}>
@@ -205,11 +224,19 @@ export default function Form(props: FormProps) {
                       <ComboBoxValue placeholder={managerId ? "Select model" : "Select manager first"} />
                     </ComboBoxTrigger>
                     <ComboBoxContent>
-                      {modelsA.map(m => (
-                        <ComboBoxItem key={m.id} value={m.id}>
-                          {m.name}
-                        </ComboBoxItem>
-                      ))}
+                      {modelsA
+                        .filter(m => {
+                          const u = (m.username || "").trim()
+                          const selectedU = usernameForSelection(managers, managerId, modelId)
+                          if (!u) return true
+                          if (u === selectedU) return true
+                          return !takenUsernames.has(u)
+                        })
+                        .map(m => (
+                          <ComboBoxItem key={m.id} value={m.id}>
+                            {m.name}
+                          </ComboBoxItem>
+                        ))}
                     </ComboBoxContent>
                   </ComboBox>
                 </div>
@@ -220,69 +247,107 @@ export default function Form(props: FormProps) {
               <div className="space-y-4">
                 <div>
                   <h3 className="text-lg font-semibold mb-1">Compare Models</h3>
-                  <p className="text-sm text-muted-foreground mb-4">Optionally compare against another model</p>
+                  <p className="text-sm text-muted-foreground mb-4">Add up to {MAX_COMPARISONS} comparison models</p>
                 </div>
 
-                {!compareEnabled ? (
+                {comparisons.length === 0 ? (
                   <div className="border border-dashed border-border/60 bg-muted/20 rounded-xl p-8 text-center">
-                    <p className="text-muted-foreground mb-4">Add a second model to compare results side by side</p>
-                    <button type="button" className={s.btn2} onClick={addCompare}>
+                    <p className="text-muted-foreground mb-4">Add comparison models to view results side by side</p>
+                    <button type="button" className={s.btn2} onClick={addComparison} disabled={comparisons.length >= MAX_COMPARISONS}>
                       Add Comparison
                     </button>
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium">Comparison Model</span>
-                      <button
-                        type="button"
-                        className="text-sm text-destructive hover:text-red-500 transition-colors"
-                        onClick={removeCompare}
-                      >
-                        Remove
+                    {comparisons.map((c, idx) => {
+                      const mgr = managers.find(m => m.id === c.managerId) || null
+                      const models = c.managerId ? (modelsFor.get(c.managerId) || []) : []
+                      return (
+                        <div key={idx} className="rounded-xl border border-border/60 bg-muted/20 p-4 space-y-4">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium">Comparison {idx + 1}</span>
+                            <button
+                              type="button"
+                              className="text-sm text-destructive hover:text-red-500 transition-colors"
+                              onClick={() => removeComparison(idx)}
+                            >
+                              Remove
+                            </button>
+                          </div>
+
+                          <div>
+                            <label htmlFor={`managerB_${idx}`} className="block text-sm font-semibold text-foreground mb-2">
+                              Manager
+                            </label>
+                            <ComboBox
+                              value={c.managerId}
+                              onValueChange={(v) => {
+                                updateComparison(idx, { managerId: v, modelId: "" })
+                              }}
+                            >
+                              <ComboBoxTrigger
+                                id={`managerB_${idx}`}
+                                className={`${s.csvinput} bg-background/40 border-border/60 focus:ring-2 focus:ring-primary/20`}
+                              >
+                                <ComboBoxValue placeholder="Select manager" />
+                              </ComboBoxTrigger>
+                              <ComboBoxContent>
+                                {managers.map(m => (
+                                  <ComboBoxItem key={m.id} value={m.id}>
+                                    {m.name}
+                                  </ComboBoxItem>
+                                ))}
+                              </ComboBoxContent>
+                            </ComboBox>
+                          </div>
+
+                          <div>
+                            <label htmlFor={`modelB_${idx}`} className="block text-sm font-semibold text-foreground mb-2">
+                              Model
+                            </label>
+                            <ComboBox
+                              value={c.modelId}
+                              onValueChange={(v) => updateComparison(idx, { modelId: v })}
+                              disabled={!c.managerId}
+                            >
+                              <ComboBoxTrigger
+                                id={`modelB_${idx}`}
+                                className={`${s.csvinput} bg-background/40 border-border/60 focus:ring-2 focus:ring-primary/20`}
+                              >
+                                <ComboBoxValue placeholder={c.managerId ? "Select model" : "Select manager first"} />
+                              </ComboBoxTrigger>
+                              <ComboBoxContent>
+                                {models
+                                  .filter(m => {
+                                    const u = (m.username || "").trim()
+                                    const thisSelectedU = usernameForSelection(managers, c.managerId, c.modelId)
+                                    if (!u) return true
+                                    if (u === thisSelectedU) return true
+                                    return !takenUsernames.has(u)
+                                  })
+                                  .map(m => (
+                                    <ComboBoxItem key={m.id} value={m.id}>
+                                      {m.name}
+                                    </ComboBoxItem>
+                                  ))}
+                              </ComboBoxContent>
+                            </ComboBox>
+                          </div>
+
+                          <div className="text-xs text-muted-foreground">
+                            Selected: {mgr?.name || "—"} → {models.find(m => m.id === c.modelId)?.name || "—"}
+                          </div>
+                        </div>
+                      )
+                    })}
+
+                    <div className="flex items-center justify-between pt-2">
+                      <button type="button" className={s.btn2} onClick={addComparison} disabled={comparisons.length >= MAX_COMPARISONS}>
+                        Add Another
                       </button>
-                    </div>
-
-                    <div>
-                      <label htmlFor="managerB" className="block text-sm font-semibold text-foreground mb-2">
-                        Manager
-                      </label>
-                      <ComboBox value={managerId2} onValueChange={setManagerId2}>
-                        <ComboBoxTrigger
-                          id="managerB"
-                          className={`${s.csvinput} bg-background/40 border-border/60 focus:ring-2 focus:ring-primary/20`}
-                        >
-                          <ComboBoxValue placeholder="Select manager" />
-                        </ComboBoxTrigger>
-                        <ComboBoxContent>
-                          {managers.map(m => (
-                            <ComboBoxItem key={m.id} value={m.id}>
-                              {m.name}
-                            </ComboBoxItem>
-                          ))}
-                        </ComboBoxContent>
-                      </ComboBox>
-                    </div>
-
-                    <div>
-                      <label htmlFor="modelB" className="block text-sm font-semibold text-foreground mb-2">
-                        Model
-                      </label>
-                      <ComboBox value={modelId2} onValueChange={setModelId2} disabled={!managerId2}>
-                        <ComboBoxTrigger
-                          id="modelB"
-                          className={`${s.csvinput} bg-background/40 border-border/60 focus:ring-2 focus:ring-primary/20`}
-                        >
-                          <ComboBoxValue placeholder={managerId2 ? "Select model" : "Select manager first"} />
-                        </ComboBoxTrigger>
-                        <ComboBoxContent>
-                          {modelsB.map(m => (
-                            <ComboBoxItem key={m.id} value={m.id}>
-                              {m.name}
-                            </ComboBoxItem>
-                          ))}
-                        </ComboBoxContent>
-                      </ComboBox>
+                      <span className="text-xs text-muted-foreground">
+                        {comparisons.length}/{MAX_COMPARISONS} comparisons
+                      </span>
                     </div>
                   </div>
                 )}
@@ -304,16 +369,24 @@ export default function Form(props: FormProps) {
                     </p>
                   </div>
 
-                  {compareEnabled && managerId2 && modelId2 ? (
-                    <div className="bg-muted/30 border border-border/60 rounded-xl p-4">
-                      <p className="text-xs font-medium text-muted-foreground uppercase mb-2">Comparison Model</p>
-                      <p className="text-foreground font-medium">
-                        {mgrB?.name} → {selectedModelB?.name}
-                      </p>
+                  {comparisons.length > 0 ? (
+                    <div className="space-y-3">
+                      {comparisons.map((c, idx) => {
+                        const mgr = managers.find(m => m.id === c.managerId)
+                        const mdl = mgr?.models?.find(mm => mm.id === c.modelId)
+                        return (
+                          <div key={idx} className="bg-muted/30 border border-border/60 rounded-xl p-4">
+                            <p className="text-xs font-medium text-muted-foreground uppercase mb-2">Comparison {idx + 1}</p>
+                            <p className="text-foreground font-medium">
+                              {mgr?.name || "—"} → {mdl?.name || "—"}
+                            </p>
+                          </div>
+                        )
+                      })}
                     </div>
                   ) : (
                     <div className="bg-muted/20 border border-dashed border-border/60 rounded-xl p-4">
-                      <p className="text-sm text-muted-foreground italic">No comparison model selected</p>
+                      <p className="text-sm text-muted-foreground italic">No comparison models selected</p>
                     </div>
                   )}
                 </div>
@@ -341,13 +414,9 @@ export default function Form(props: FormProps) {
                 type="button"
                 className={s.btn}
                 onClick={handleNext}
-                disabled={
-                  busy ||
-                  (currentStep === 1 && !canProgressFromStep1) ||
-                  (currentStep === 2 && !canProgressFromStep2)
-                }
+                disabled={busy || (currentStep === 1 && !canProgressFromStep1) || (currentStep === 2 && !canProgressFromStep2)}
               >
-                {currentStep === 2 && !compareEnabled ? "Skip & Continue" : "Next"}
+                {currentStep === 2 && comparisons.length === 0 ? "Skip & Continue" : "Next"}
               </button>
             ) : (
               <button
@@ -361,7 +430,6 @@ export default function Form(props: FormProps) {
             )}
           </div>
         </div>
-
       </div>
 
       <div className={s.bar} aria-hidden="true">

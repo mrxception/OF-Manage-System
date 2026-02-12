@@ -3,17 +3,20 @@
 import React from "react"
 import { Checkbox } from "@/components/ui/checkbox"
 
+type UserSlot = { username: string; rows: any[] }
+
 interface ExcelSheetSectionProps {
   hasTop10: boolean
-  username: string
-  username2?: string
-  rows: any[]
-  rows2?: any[]
+  users: UserSlot[]
   fmtUTC: (iso: string) => string
   s: { [key: string]: string }
   defaults: { inclVote: boolean; inclComm: boolean; inclMed: boolean; inclSubs: boolean; inclPER: boolean }
   subsAvailable: boolean
-  onExport: (kind: "data" | "raw", target: "u1" | "u2", opts: { inclVote: boolean; inclComm: boolean; inclMed: boolean; inclSubs: boolean; inclPER: boolean }) => void
+  onExport: (
+    kind: "data" | "raw",
+    userIndex: number,
+    opts: { inclVote: boolean; inclComm: boolean; inclMed: boolean; inclSubs: boolean; inclPER: boolean }
+  ) => void
 }
 
 function measureTextPxCached(text: string, font: string, cache: Map<string, number>) {
@@ -45,19 +48,18 @@ function ratingWeight(val: string) {
   return map[String(val)] ?? 0
 }
 
-export default function ExcelSheetSection({
-  hasTop10,
-  username,
-  username2,
-  rows,
-  rows2,
-  fmtUTC,
-  s,
-  defaults,
-  subsAvailable,
-  onExport,
-}: ExcelSheetSectionProps) {
-  const compare = !!username2 && Array.isArray(rows2) && rows2.length > 0
+export default function ExcelSheetSection({ hasTop10, users, fmtUTC, s, defaults, subsAvailable, onExport }: ExcelSheetSectionProps) {
+  const normUsers = React.useMemo(() => {
+    const arr = Array.isArray(users) ? users : []
+    return arr
+      .map((u) => ({ username: (u?.username || "").trim(), rows: Array.isArray(u?.rows) ? u.rows : [] }))
+      .filter((u) => u.rows.length > 0)
+  }, [users])
+
+  const primary = normUsers[0] || { username: "", rows: [] }
+  const rows = primary.rows
+  const compare = normUsers.length > 1
+
   const containerRef = React.useRef<HTMLDivElement>(null)
   const [isOpen, setIsOpen] = React.useState(true)
   const [inclVote, setInclVote] = React.useState(defaults.inclVote)
@@ -65,6 +67,7 @@ export default function ExcelSheetSection({
   const [inclMed, setInclMed] = React.useState(defaults.inclMed)
   const [inclSubs, setInclSubs] = React.useState(subsAvailable ? defaults.inclSubs : false)
   const [inclPER, setInclPER] = React.useState(subsAvailable ? defaults.inclPER : false)
+
   const nonSortableSingle = React.useMemo(() => new Set(["Subreddit"]), [])
   const nonSortableCompare = React.useMemo(() => new Set(["Subreddit"]), [])
   const [sortKeySingle, setSortKeySingle] = React.useState<string | null>(null)
@@ -75,11 +78,13 @@ export default function ExcelSheetSection({
   const [gridCols, setGridCols] = React.useState<string>("")
   const [toastMsg, setToastMsg] = React.useState<string | null>(null)
   const copyTimerRef = React.useRef<number | null>(null)
+
   const notify = React.useCallback((msg: string) => {
     setToastMsg(msg)
     if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current)
     copyTimerRef.current = window.setTimeout(() => setToastMsg(null), 1000)
   }, [])
+
   React.useEffect(() => () => { if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current) }, [])
 
   const writeClipboard = React.useCallback(async (text: string) => {
@@ -118,28 +123,6 @@ export default function ExcelSheetSection({
   }, [inclMed, inclVote, inclComm, inclSubs, inclPER, subsAvailable])
 
   const metrics = React.useMemo(() => cols.filter(c => c.key !== "Subreddit"), [cols])
-
-  const bySub1 = React.useMemo(() => {
-    const m = new Map<string, any>()
-    for (const r of rows || []) if (r?.Subreddit) m.set(r.Subreddit, r)
-    return m
-  }, [rows])
-
-  const bySub2 = React.useMemo(() => {
-    const m = new Map<string, any>()
-    for (const r of rows2 || []) if (r?.Subreddit) m.set(r.Subreddit, r)
-    return m
-  }, [rows2])
-
-  const overlapSubs: string[] = React.useMemo(() => {
-    if (!compare) return []
-    const a = new Set<string>((rows || []).map((r: any) => r?.Subreddit).filter(Boolean))
-    const b = new Set<string>((rows2 || []).map((r: any) => r?.Subreddit).filter(Boolean))
-    const inter: string[] = []
-    a.forEach(su => { if (b.has(su)) inter.push(su) })
-    inter.sort((x, y) => x.localeCompare(y))
-    return inter
-  }, [rows, rows2, compare])
 
   const preRow = React.useCallback((r: any) => {
     const o: any = { ...r }
@@ -255,6 +238,7 @@ export default function ExcelSheetSection({
 
   const rafIdRef = React.useRef<number | null>(null)
   const lastWidthRef = React.useRef<number>(0)
+
   const onResize = React.useCallback(() => {
     if (!containerRef.current) return
     const w = containerRef.current.clientWidth
@@ -285,13 +269,36 @@ export default function ExcelSheetSection({
     }
   }, [compare, onResize])
 
+  const bySubs = React.useMemo(() => {
+    const arr = normUsers.map(() => new Map<string, any>())
+    normUsers.forEach((u, i) => {
+      for (const r of u.rows || []) if (r?.Subreddit) arr[i].set(r.Subreddit, r)
+    })
+    return arr
+  }, [normUsers])
+
+  const overlapSubs: string[] = React.useMemo(() => {
+    if (!compare) return []
+    const sets = normUsers.map((u) => new Set<string>((u.rows || []).map((r: any) => r?.Subreddit).filter(Boolean)))
+    if (sets.length === 0) return []
+    const [first, ...rest] = sets
+    const inter: string[] = []
+    first.forEach((su) => {
+      if (rest.every((s) => s.has(su))) inter.push(su)
+    })
+    inter.sort((x, y) => x.localeCompare(y))
+    return inter
+  }, [compare, normUsers])
+
   const sortedSubsComp = React.useMemo(() => {
     const base = overlapSubs
     if (!sortKeyComp) return base
-    const [metric, who] = sortKeyComp.split("__")
+    const [metric, whoStr] = sortKeyComp.split("__")
+    const who = Number(whoStr)
     const arr = base.slice()
+
     const getVal = (sub: string) => {
-      const src = who === "u2" ? bySub2.get(sub) : bySub1.get(sub)
+      const src = bySubs[who]?.get(sub)
       const v = src ? src[metric] : null
       if (metric === "Post_Frequency") return parsePostFrequency(String(v || ""))
       if (metric === "WPI_Rating") return ratingWeight(String(v || ""))
@@ -305,6 +312,7 @@ export default function ExcelSheetSection({
       if (!Number.isNaN(num) && String(v).trim() !== "") return num
       return String(v)
     }
+
     arr.sort((a, b) => {
       const va = getVal(a)
       const vb = getVal(b)
@@ -314,8 +322,9 @@ export default function ExcelSheetSection({
       const cmp = sa.localeCompare(sb, undefined, { numeric: true, sensitivity: "base" })
       return sortDirComp === "asc" ? cmp : -cmp
     })
+
     return arr
-  }, [overlapSubs, sortKeyComp, sortDirComp, bySub1, bySub2])
+  }, [overlapSubs, sortKeyComp, sortDirComp, bySubs])
 
   const onHeaderClickComp = (compoundKey: string) => {
     const [metric] = compoundKey.split("__")
@@ -333,9 +342,9 @@ export default function ExcelSheetSection({
     const left = "minmax(200px, 280px)"
     const each = "minmax(140px, 1fr)"
     const segs: string[] = [num, left]
-    for (const _ of metrics) segs.push(each, each)
+    for (const _ of metrics) for (let i = 0; i < normUsers.length; i++) segs.push(each)
     return segs.join(" ")
-  }, [metrics])
+  }, [metrics, normUsers.length])
 
   const renderCellValue = (metricKey: string, rowObj: any) => {
     if (!rowObj) return ""
@@ -398,15 +407,19 @@ export default function ExcelSheetSection({
     </div>
   )
 
+  const titleNames = compare
+    ? normUsers.map((u) => (u.username ? `u/${u.username}` : "user")).join(" vs ")
+    : (primary.username ? `u/${primary.username}` : "")
+
   return (
-    <div className="rounded-lg border border-border bg-card">
+    <div className="rounded-lg border border-border bg-card" id="excel-table">
       <header className="p-6 cursor-pointer flex justify-between items-center" onClick={() => setIsOpen(v => !v)} aria-expanded={isOpen} aria-controls="excel-content">
         <div className="flex items-center gap-2 text-xl font-bold">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: "var(--sidebar-primary)" }}>
             <rect x="3" y="3" width="18" height="18" rx="2" />
             <path d="M3 9h18M9 3v18" />
           </svg>
-          <h3 className="text-xl font-bold">Subreddit Performance Table{username ? ` for u/${username}` : ""}{compare && username2 ? ` vs u/${username2}` : ""}</h3>
+          <h3 className="text-xl font-bold">Subreddit Performance Table{titleNames ? ` for ${titleNames}` : ""}</h3>
         </div>
         <svg className={`w-6 h-6 transition-transform duration-300 ${isOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -514,22 +527,13 @@ export default function ExcelSheetSection({
               <div className={s.tableContainer} ref={containerRef}>
                 <div
                   className={s.stickyHeaderGroup}
-                  style={{
-                    gridTemplateColumns: (() => {
-                      const num = "48px"
-                      const left = "minmax(200px, 280px)"
-                      const each = "minmax(140px, 1fr)"
-                      const segs: string[] = [num, left]
-                      for (const _ of metrics) segs.push(each, each)
-                      return segs.join(" ")
-                    })()
-                  }}
+                  style={{ gridTemplateColumns: gridTemplateColumnsComp }}
                   role="presentation"
                 >
                   <div className={`${s.thCell} ${s.thRow1}`} />
                   <div className={`${s.thCell} ${s.thRow1}`} />
                   {metrics.map((m) => (
-                    <div key={`g-${m.key}`} className={`${s.thCell} ${s.thRow1}`} style={{ gridColumn: "span 2" }}>
+                    <div key={`g-${m.key}`} className={`${s.thCell} ${s.thRow1}`} style={{ gridColumn: `span ${normUsers.length}` }}>
                       {m.label}
                     </div>
                   ))}
@@ -551,69 +555,67 @@ export default function ExcelSheetSection({
                       </button>
                     </div>
                   </div>
-                  {metrics.map(m => (
-                    <React.Fragment key={`sub-${m.key}`}>
-                      <div className={s.thCell} onClick={() => onHeaderClickComp(`${m.key}__u1`)} style={{ cursor: nonSortableCompare.has(m.key) ? "default" : "pointer" }}>
-                        {sortKeyComp === `${m.key}__u1` ? `user1 ${sortDirComp === "desc" ? "▼" : "▲"}` : "user1"}
+
+                  {metrics.map((m) =>
+                    normUsers.map((u, ui) => (
+                      <div
+                        key={`h-${m.key}-${ui}`}
+                        className={s.thCell}
+                        onClick={() => onHeaderClickComp(`${m.key}__${ui}`)}
+                        style={{ cursor: nonSortableCompare.has(m.key) ? "default" : "pointer" }}
+                      >
+                        {sortKeyComp === `${m.key}__${ui}` ? `${u.username || `user${ui + 1}`} ${sortDirComp === "desc" ? "▼" : "▲"}` : (u.username || `user${ui + 1}`)}
                       </div>
-                      <div className={s.thCell} onClick={() => onHeaderClickComp(`${m.key}__u2`)} style={{ cursor: nonSortableCompare.has(m.key) ? "default" : "pointer" }}>
-                        {sortKeyComp === `${m.key}__u2` ? `user2 ${sortDirComp === "desc" ? "▼" : "▲"}` : "user2"}
-                      </div>
-                    </React.Fragment>
-                  ))}
+                    ))
+                  )}
                 </div>
 
                 <div
                   className={s.excel}
-                  style={{
-                    gridTemplateColumns: (() => {
-                      const num = "48px"
-                      const left = "minmax(200px, 280px)"
-                      const each = "minmax(140px, 1fr)"
-                      const segs: string[] = [num, left]
-                      for (const _ of metrics) segs.push(each, each)
-                      return segs.join(" ")
-                    })(),
-                    minWidth: "860px"
-                  }}
+                  style={{ gridTemplateColumns: gridTemplateColumnsComp, minWidth: "860px" }}
                   role="table"
                   aria-label="Subreddit Performance (compare)"
                 >
                   <div className={`${s.cell} ${s.corner} ${s.headerSpacer}`} />
                   <div className={`${s.cell} ${s.colhead} ${s.headerSpacer}`} />
-                  {metrics.map(m => (
-                    <div key={`p1-${m.key}`} className={`${s.cell} ${s.colhead} ${s.headerSpacer}`} style={{ gridColumn: "span 2" }} />
+                  {metrics.map((m) => (
+                    <div key={`p1-${m.key}`} className={`${s.cell} ${s.colhead} ${s.headerSpacer}`} style={{ gridColumn: `span ${normUsers.length}` }} />
                   ))}
                   <div className={`${s.cell} ${s.colhead} ${s.headerSpacer}`} />
                   <div className={`${s.cell} ${s.colhead} ${s.headerSpacer}`} />
-                  {metrics.map(m => (
-                    <React.Fragment key={`p2-${m.key}`}>
-                      <div className={`${s.cell} ${s.colhead} ${s.headerSpacer}`} />
-                      <div className={`${s.cell} ${s.colhead} ${s.headerSpacer}`} />
+                  {metrics.map((m) =>
+                    normUsers.map((_, ui) => (
+                      <div key={`p2-${m.key}-${ui}`} className={`${s.cell} ${s.colhead} ${s.headerSpacer}`} />
+                    ))
+                  )}
+
+                  {sortedSubsComp.map((sub, rIndex) => (
+                    <React.Fragment key={`row-${sub}`}>
+                      <div className={`${s.cell} ${s.rowhead}`}>{rIndex + 1}</div>
+                      <div
+                        className={`${s.cell} ${s.rowhead} cursor-pointer select-none`}
+                        style={{ textAlign: "left", fontWeight: 600 }}
+                        title="Click to copy subreddit"
+                        onClick={() => writeClipboard(sub).then(ok => ok && notify("Subreddit copied!"))}
+                        aria-label={`Copy subreddit ${sub}`}
+                      >
+                        {sub}
+                      </div>
+
+                      {metrics.map((m) =>
+                        normUsers.map((_, ui) => {
+                          const raw = bySubs[ui]?.get(sub)
+                          const pr = preRow(raw)
+                          const v = renderCellValue(m.key, pr)
+                          return (
+                            <div key={`${sub}-${m.key}-${ui}`} className={s.cell} role="cell" title={String(v ?? "")}>
+                              {v ?? ""}
+                            </div>
+                          )
+                        })
+                      )}
                     </React.Fragment>
                   ))}
-                  {sortedSubsComp.map((sub, rIndex) => {
-                    const r1 = bySub1.get(sub)
-                    const r2 = bySub2.get(sub)
-                    return (
-                      <React.Fragment key={`row-${sub}`}>
-                        <div className={`${s.cell} ${s.rowhead}`}>{rIndex + 1}</div>
-                        <div className={`${s.cell} ${s.rowhead} cursor-pointer select-none`} style={{ textAlign: "left", fontWeight: 600 }} title="Click to copy subreddit" onClick={() => writeClipboard(sub).then(ok => ok && notify("Subreddit copied!"))} aria-label={`Copy subreddit ${sub}`}>
-                          {sub}
-                        </div>
-                        {metrics.map(m => {
-                          const v1 = renderCellValue(m.key, preRow(r1))
-                          const v2 = renderCellValue(m.key, preRow(r2))
-                          return (
-                            <React.Fragment key={`${sub}-${m.key}`}>
-                              <div className={s.cell} role="cell" title={String(v1 ?? "")}>{v1 ?? ""}</div>
-                              <div className={s.cell} role="cell" title={String(v2 ?? "")}>{v2 ?? ""}</div>
-                            </React.Fragment>
-                          )
-                        })}
-                      </React.Fragment>
-                    )
-                  })}
                 </div>
               </div>
             </div>
@@ -622,34 +624,47 @@ export default function ExcelSheetSection({
           <div className="mt-4 flex items-center justify-end gap-2 flex-wrap">
             {!compare && (
               <>
-                <button type="button" className={`inline-flex items-center rounded-md px-3 py-2 text-sm font-medium ${s.mini}`} onClick={() => onExport("data", "u1", { inclVote, inclComm, inclMed, inclSubs: subsAvailable && inclSubs, inclPER: subsAvailable && inclPER })}>
+                <button
+                  type="button"
+                  className={`inline-flex items-center rounded-md px-3 py-2 text-sm font-medium ${s.mini}`}
+                  onClick={() => onExport("data", 0, { inclVote, inclComm, inclMed, inclSubs: subsAvailable && inclSubs, inclPER: subsAvailable && inclPER })}
+                >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M12 3v12m0 0 4-4m-4 4-4-4" /></svg>
                   Export Data to Excel
                 </button>
-                <button type="button" className={`inline-flex items-center rounded-md px-3 py-2 text-sm font-medium ${s.mini}`} onClick={() => onExport("raw", "u1", { inclVote, inclComm, inclMed, inclSubs: subsAvailable, inclPER: subsAvailable && inclPER })}>
+                <button
+                  type="button"
+                  className={`inline-flex items-center rounded-md px-3 py-2 text-sm font-medium ${s.mini}`}
+                  onClick={() => onExport("raw", 0, { inclVote, inclComm, inclMed, inclSubs: subsAvailable, inclPER: subsAvailable && inclPER })}
+                >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M12 3v12m0 0 4-4m-4 4-4-4" /></svg>
                   Export Individual Post Data to Excel
                 </button>
               </>
             )}
+
             {compare && (
               <>
-                <button type="button" className={`inline-flex items-center rounded-md px-3 py-2 text-sm font-medium ${s.mini}`} onClick={() => onExport("data", "u1", { inclVote, inclComm, inclMed, inclSubs: subsAvailable && inclSubs, inclPER: subsAvailable && inclPER })}>
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M12 3v12m0 0 4-4m-4 4-4-4" /></svg>
-                  Export Data to Excel (u1)
-                </button>
-                <button type="button" className={`inline-flex items-center rounded-md px-3 py-2 text-sm font-medium ${s.mini}`} onClick={() => onExport("raw", "u1", { inclVote, inclComm, inclMed, inclSubs: subsAvailable, inclPER: subsAvailable && inclPER })}>
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M12 3v12m0 0 4-4m-4 4-4-4" /></svg>
-                  Export Individual Post Data to Excel (u1)
-                </button>
-                <button type="button" className={`inline-flex items-center rounded-md px-3 py-2 text-sm font-medium ${s.mini}`} onClick={() => onExport("data", "u2", { inclVote, inclComm, inclMed, inclSubs: subsAvailable && inclSubs, inclPER: subsAvailable && inclPER })}>
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M12 3v12m0 0 4-4m-4 4-4-4" /></svg>
-                  Export Data to Excel (u2)
-                </button>
-                <button type="button" className={`inline-flex items-center rounded-md px-3 py-2 text-sm font-medium ${s.mini}`} onClick={() => onExport("raw", "u2", { inclVote, inclComm, inclMed, inclSubs: subsAvailable, inclPER: subsAvailable && inclPER })}>
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M12 3v12m0 0 4-4m-4 4-4-4" /></svg>
-                  Export Individual Post Data to Excel (u2)
-                </button>
+                {normUsers.map((u, ui) => (
+                  <React.Fragment key={`exp-${ui}`}>
+                    <button
+                      type="button"
+                      className={`inline-flex items-center rounded-md px-3 py-2 text-sm font-medium ${s.mini}`}
+                      onClick={() => onExport("data", ui, { inclVote, inclComm, inclMed, inclSubs: subsAvailable && inclSubs, inclPER: subsAvailable && inclPER })}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M12 3v12m0 0 4-4m-4 4-4-4" /></svg>
+                      Export Data ({u.username ? `u/${u.username}` : `user${ui + 1}`})
+                    </button>
+                    <button
+                      type="button"
+                      className={`inline-flex items-center rounded-md px-3 py-2 text-sm font-medium ${s.mini}`}
+                      onClick={() => onExport("raw", ui, { inclVote, inclComm, inclMed, inclSubs: subsAvailable, inclPER: subsAvailable && inclPER })}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M12 3v12m0 0 4-4m-4 4-4-4" /></svg>
+                      Export Raw ({u.username ? `u/${u.username}` : `user${ui + 1}`})
+                    </button>
+                  </React.Fragment>
+                ))}
               </>
             )}
           </div>
