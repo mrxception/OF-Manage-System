@@ -1,6 +1,6 @@
 "use client"
 
-import React from "react"
+import React, { useLayoutEffect, useMemo, useRef, useState } from "react"
 
 interface KPIItemProps {
   title: string
@@ -24,6 +24,42 @@ export default function KPIItem({
   const Icon = (customIcon ?? ICONS[icon] ?? ICONS.search) as React.ComponentType<{ size: number }>
   const pillSize = Math.max(28, iconSize + 10)
 
+  const valueStr = useMemo(() => (value ?? "—").toString(), [value])
+
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  const valRef = useRef<HTMLDivElement | null>(null)
+
+  const [fontPx, setFontPx] = useState(24)
+
+  useLayoutEffect(() => {
+    const wrap = wrapRef.current
+    const el = valRef.current
+    if (!wrap || !el) return
+
+    const MAX = 24
+    const MIN = 14
+
+    const fit = () => {
+      el.style.fontSize = `${MAX}px`
+
+      const wrapW = wrap.clientWidth
+      let cur = MAX
+
+      while (cur > MIN && el.scrollWidth > wrapW) {
+        cur -= 1
+        el.style.fontSize = `${cur}px`
+      }
+
+      setFontPx(cur)
+    }
+
+    fit()
+
+    const ro = new ResizeObserver(() => fit())
+    ro.observe(wrap)
+    return () => ro.disconnect()
+  }, [valueStr])
+
   return (
     <div
       aria-label={ariaLabel || title}
@@ -42,11 +78,18 @@ export default function KPIItem({
         </div>
       </div>
 
-      <div className="text-2xl font-bold text-foreground">{value ?? "—"}</div>
+      <div ref={wrapRef} className="w-full overflow-hidden">
+        <div
+          ref={valRef}
+          className="font-bold text-foreground whitespace-nowrap overflow-hidden text-ellipsis"
+          style={{ fontSize: `${fontPx}px`, lineHeight: 1.15 }}
+          title={valueStr}
+        >
+          {valueStr}
+        </div>
+      </div>
 
-      {note && (
-        <div className="mt-3 text-xs text-muted-foreground/80 text-left">{note}</div>
-      )}
+      {note && <div className="mt-3 text-xs text-muted-foreground/80 text-left">{note}</div>}
     </div>
   )
 }
@@ -105,6 +148,12 @@ const ICONS = {
       <circle cx="12" cy="12" r="10" />
       <circle cx="12" cy="12" r="6" />
       <circle cx="12" cy="12" r="2" />
+    </SvgBase>
+  ),
+  shield: ({ size }: { size: number }) => (
+    <SvgBase title="Contributor Quality Score" size={size}>
+      <path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6l8-4z" />
+      <polyline points="9 12 11 14 15 10" />
     </SvgBase>
   ),
 }

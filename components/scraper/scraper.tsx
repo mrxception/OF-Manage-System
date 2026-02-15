@@ -1,3 +1,4 @@
+// scraper.tsx
 "use client"
 
 import { useEffect, useRef, useState } from "react"
@@ -28,6 +29,7 @@ type UserDataset = {
   rows: any[]
   rawRows?: any[] | null
   timeSeries?: TS | null
+  cqs?: string | null
 }
 
 export default function Scraper() {
@@ -158,21 +160,26 @@ export default function Scraper() {
       body: JSON.stringify({ username }),
     })
 
-    if (r.status === 404) return { ok: false as const, notFound: true as const, payload: null }
+    if (r.status === 404) return { ok: false as const, notFound: true as const, payload: null, cqs: null as string | null }
     if (!r.ok) {
       const reason = await readServerError(r)
-      return { ok: false as const, notFound: false as const, payload: null, reason }
+      return { ok: false as const, notFound: false as const, payload: null, cqs: null as string | null, reason }
     }
 
     const j = await r.json()
-    return { ok: true as const, notFound: false as const, payload: j?.payload ?? null }
+    return {
+      ok: true as const,
+      notFound: false as const,
+      payload: j?.payload ?? null,
+      cqs: typeof j?.cqs === "string" ? j.cqs : null,
+    }
   }
 
-  function normalizeUserFromPayload(username: string, payload: any): UserDataset {
+  function normalizeUserFromPayload(username: string, payload: any, cqs?: string | null): UserDataset {
     const rows = Array.isArray(payload?.preview) ? payload.preview : Array.isArray(payload?.preview2) ? payload.preview2 : []
     const rawRows = Array.isArray(payload?.rawRows) ? payload.rawRows : Array.isArray(payload?.rawRows2) ? payload.rawRows2 : null
     const timeSeries = payload?.timeSeries ?? payload?.timeSeries2 ?? null
-    return { username, rows, rawRows, timeSeries }
+    return { username, rows, rawRows, timeSeries, cqs: typeof cqs === "string" ? cqs : null }
   }
 
   function applyMergedUsers(mergedUsers: UserDataset[], meta?: any) {
@@ -281,7 +288,7 @@ export default function Scraper() {
 
     const allFound = saved.every((x) => x.ok && x.payload)
     if (allFound) {
-      const mergedUsers = frozenAll.map((uname, i) => normalizeUserFromPayload(uname, saved[i].payload))
+      const mergedUsers = frozenAll.map((uname, i) => normalizeUserFromPayload(uname, saved[i].payload, saved[i].cqs))
       applyMergedUsers(mergedUsers, saved[0].payload)
       setProgress(1)
       setStatus("Ready.")
@@ -383,7 +390,13 @@ export default function Scraper() {
       const payload = await res.json()
 
       const mergedUsers: UserDataset[] = []
-      mergedUsers.push({ username: frozen1, rows: Array.isArray(payload?.preview) ? payload.preview : [], rawRows: Array.isArray(payload?.rawRows) ? payload.rawRows : null, timeSeries: payload?.timeSeries ?? null })
+      mergedUsers.push({
+        username: frozen1,
+        rows: Array.isArray(payload?.preview) ? payload.preview : [],
+        rawRows: Array.isArray(payload?.rawRows) ? payload.rawRows : null,
+        timeSeries: payload?.timeSeries ?? null,
+        cqs: typeof payload?.cqs === "string" ? payload.cqs : null,
+      })
 
       const previews: any[] = Array.isArray(payload?.previews) ? payload.previews : []
       const rawRowsList: any[] = Array.isArray(payload?.rawRowsList) ? payload.rawRowsList : []
@@ -393,7 +406,7 @@ export default function Scraper() {
         const rows = Array.isArray(previews[idx]) ? previews[idx] : Array.isArray(payload?.[`preview${idx + 2}`]) ? payload[`preview${idx + 2}`] : []
         const raw = Array.isArray(rawRowsList[idx]) ? rawRowsList[idx] : Array.isArray(payload?.[`rawRows${idx + 2}`]) ? payload[`rawRows${idx + 2}`] : null
         const ts = timeSeriesList[idx] ?? payload?.[`timeSeries${idx + 2}`] ?? null
-        mergedUsers.push({ username: uname, rows, rawRows: raw, timeSeries: ts })
+        mergedUsers.push({ username: uname, rows, rawRows: raw, timeSeries: ts, cqs: null })
       })
 
       applyMergedUsers(mergedUsers, payload)
@@ -419,7 +432,7 @@ export default function Scraper() {
 
   const hasRows = usersData[0]?.rows && Array.isArray(usersData[0].rows) && usersData[0].rows.length > 0
 
-  const usersForSections = usersData.map((u) => ({ username: u.username, rows: u.rows }))
+  const usersForSections = usersData.map((u) => ({ username: u.username, rows: u.rows, cqs: u.cqs ?? null }))
   const usernamesForPdf = usersData.map((u) => u.username)
   const primaryUsername = usernamesForPdf[0] || ""
   const secondaryUsername = usernamesForPdf[1] || ""
@@ -459,7 +472,7 @@ export default function Scraper() {
 
         <ExcelSheetSection
           hasTop10={hasRows}
-          users={usersForSections}
+          users={usersForSections as any}
           fmtUTC={(iso) => {
             if (!iso) return ""
             const d = new Date(iso)
@@ -476,11 +489,11 @@ export default function Scraper() {
           onExport={(kind, userIndex, opts) => downloadExport(kind, userIndex, opts)}
         />
 
-        <ScatterPlotSection users={usersForSections} s={s} onScatterState={setScatter} />
+        <ScatterPlotSection users={usersForSections as any} s={s} onScatterState={setScatter} />
 
-        <BarChartSection users={usersForSections} s={s} averageMetricKey={averageMetricKey} onMetricChange={setAverageMetricKey} />
+        <BarChartSection users={usersForSections as any} s={s} averageMetricKey={averageMetricKey} onMetricChange={setAverageMetricKey} />
 
-        <BoxPlotSection users={usersForSections} s={s} averageMetricKey={averageMetricKey} />
+        <BoxPlotSection users={usersForSections as any} s={s} averageMetricKey={averageMetricKey} />
 
         <LineChartSection
           rows={usersData[0]?.rows || []}

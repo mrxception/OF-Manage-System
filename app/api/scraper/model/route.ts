@@ -29,15 +29,15 @@ export async function POST(req: Request) {
     const username = String(body?.username || "").trim()
     if (!username) return NextResponse.json({ error: "Username required" }, { status: 400 })
 
-    const row = await queryOne<{ payload: any }>(
-      "SELECT payload FROM saved_scrapes WHERE username = ? ORDER BY scraped_at DESC LIMIT 1",
+    const row = await queryOne<{ payload: any; cqs: string }>(
+      "SELECT payload, cqs FROM saved_scrapes WHERE username = ? ORDER BY scraped_at DESC LIMIT 1",
       [username]
     )
 
     if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
     const payload = typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload
-    return NextResponse.json({ payload }, { status: 200 })
+    return NextResponse.json({ payload, cqs: row.cqs }, { status: 200 })
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Internal error" }, { status: 500 })
   }
