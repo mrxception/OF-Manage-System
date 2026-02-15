@@ -10,7 +10,6 @@ import ScatterPlotSection from "./scatter-plot-section"
 import BarChartSection from "./bar-chart-section"
 import BoxPlotSection from "./box-plot-section"
 import LineChartSection from "./line-chart-section"
-import KeyInsightsSection from "./key-insights-section"
 import KPI from "./kpi-section"
 import PdfSection from "./pdf-section"
 
@@ -433,13 +432,16 @@ export default function Scraper() {
   const hasRows = usersData[0]?.rows && Array.isArray(usersData[0].rows) && usersData[0].rows.length > 0
 
   const usersForSections = usersData.map((u) => ({ username: u.username, rows: u.rows, cqs: u.cqs ?? null }))
-  const usernamesForPdf = usersData.map((u) => u.username)
-  const primaryUsername = usernamesForPdf[0] || ""
-  const secondaryUsername = usernamesForPdf[1] || ""
 
-  const timeSeriesPrimary = usersData[0]?.timeSeries ?? undefined
-  const timeSeriesSecondary = usersData[1]?.timeSeries ?? undefined
-
+  const usersForPdf = usersData
+    .filter((u) => u?.username && Array.isArray(u?.rows) && u.rows.length > 0)
+    .map((u) => ({
+      username: u.username,
+      rows: u.rows,
+      timeSeries: u.timeSeries ?? null,
+      cqs: u.cqs ?? null,
+    }))
+    
   return (
     <div className={`min-h-screen bg-background p-4 md:p-6 ${s.bgPattern}`}>
       <div className="mx-auto max-w-7xl space-y-6">
@@ -506,26 +508,13 @@ export default function Scraper() {
         />
 
         <PdfSection
-          username={primaryUsername}
-          username2={secondaryUsername}
+          users={usersForPdf}
           dateRange={dateRange}
-          rows={usersData[0]?.rows || []}
-          rows2={(usersData[1]?.rows as any[]) || []}
           excelFlags={runDefaults}
-          timeSeries={timeSeriesPrimary}
-          timeSeries2={timeSeriesSecondary}
           lineMetric="avg_upvotes"
           lineGranularity="day"
           insights={insights}
           scatter={scatter}
-          selectors={{
-            kpi: "#kpi-section",
-            table: "#excel-table",
-            scatter: "#scatter-mean-vs-posts",
-            bar: "#bar-top25-upvotes",
-            line: "#line-performance-over-time",
-            insights: "#key-insights-section",
-          }}
         />
       </div>
     </div>
