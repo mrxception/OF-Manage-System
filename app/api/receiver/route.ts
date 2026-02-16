@@ -7,7 +7,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { key, user_id, username, payload, cqs } = body;
 
-    const API_SECRET = process.env.API_SECRET || "NahUhIdWin";
+    const API_SECRET = process.env.API_SECRET;
     
     if (key !== API_SECRET) {
       return NextResponse.json({ error: "Unauthorized: Wrong Key" }, { status: 403 });
