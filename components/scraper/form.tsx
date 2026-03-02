@@ -4,9 +4,9 @@ import { ComboBox, ComboBoxContent, ComboBoxItem, ComboBoxTrigger, ComboBoxValue
 import { motion, AnimatePresence } from "framer-motion"
 import { Check } from "lucide-react"
 
-type ModelOption = { id: string; name: string; username: string }
-type ManagerOption = { id: string; name: string; models: ModelOption[] }
-type CompareSlot = { managerId: string; modelId: string }
+type UsernameOption = { id: string; name: string; username: string }
+type ManagerOption = { id: string; name: string; usernames: UsernameOption[] }
+type CompareSlot = { baseId: string; managerId: string; usernameId: string }
 
 interface FormProps {
   onSubmit: (e: React.FormEvent) => void
@@ -14,11 +14,16 @@ interface FormProps {
   status: string
   busy: boolean
 
+  baseConfigs: { id: string; name: string }[]
+  baseId: string
+  setBaseId: (v: string) => void
+
+  managersMap: Record<string, ManagerOption[]>
   managers: ManagerOption[]
   managerId: string
   setManagerId: (v: string) => void
-  modelId: string
-  setModelId: (v: string) => void
+  usernameId: string
+  setUsernameId: (v: string) => void
 
   comparisons: CompareSlot[]
   setComparisons: (v: CompareSlot[] | ((prev: CompareSlot[]) => CompareSlot[])) => void
@@ -27,44 +32,45 @@ interface FormProps {
 }
 
 const steps = [
-  { id: 1, name: "Select Model" },
+  { id: 1, name: "Select Username" },
   { id: 2, name: "Compare" },
   { id: 3, name: "Review" },
 ]
 
 const MAX_COMPARISONS = 5
 
-const usernameForSelection = (mgrs: ManagerOption[], mgrId: string, mdlId: string) => {
-  if (!mgrId || !mdlId) return ""
-  const mgr = mgrs.find(m => m.id === mgrId)
-  const mdl = mgr?.models?.find(mm => mm.id === mdlId)
-  return (mdl?.username || "").trim()
+const usernameForSelection = (mgrsMap: Record<string, ManagerOption[]>, bId: string, mgrId: string, usrId: string) => {
+  if (!bId || !mgrId || !usrId) return ""
+  const mgr = (mgrsMap[bId] || []).find(m => m.id === mgrId)
+  const usr = mgr?.usernames?.find(u => u.id === usrId)
+  return (usr?.username || "").trim()
 }
 
-const buildTakenUsernames = (mgrs: ManagerOption[], primaryMgrId: string, primaryModelId: string, comps: CompareSlot[]) => {
+const buildTakenUsernames = (mgrsMap: Record<string, ManagerOption[]>, primaryBaseId: string, primaryMgrId: string, primaryUsernameId: string, comps: CompareSlot[]) => {
   const set = new Set<string>()
-  const u1 = usernameForSelection(mgrs, primaryMgrId, primaryModelId)
+  const u1 = usernameForSelection(mgrsMap, primaryBaseId, primaryMgrId, primaryUsernameId)
   if (u1) set.add(u1)
   for (const c of comps) {
-    const u = usernameForSelection(mgrs, c.managerId, c.modelId)
+    const u = usernameForSelection(mgrsMap, c.baseId, c.managerId, c.usernameId)
     if (u) set.add(u)
   }
   return set
 }
 
 export default function Form(props: FormProps) {
-  const { onSubmit, progRef, status, busy, managers, managerId, setManagerId, modelId, setModelId, comparisons, setComparisons, s } = props
+  const { onSubmit, progRef, status, busy, baseConfigs, baseId, setBaseId, managersMap, managers, managerId, setManagerId, usernameId, setUsernameId, comparisons, setComparisons, s } = props
 
   const [currentStep, setCurrentStep] = useState(1)
 
   const mgrA = managers.find(m => m.id === managerId) || null
-  const modelsA = mgrA?.models || []
-  const selectedModelA = modelsA.find(m => m.id === modelId)
+  const usernamesA = mgrA?.usernames || []
+  const selectedUsernameA = usernamesA.find(u => u.id === usernameId)
+  const primaryBaseObj = baseConfigs.find(b => b.id === baseId)
 
   const addComparison = () => {
     setComparisons((prev) => {
       if (prev.length >= MAX_COMPARISONS) return prev
-      return [...prev, { managerId: "", modelId: "" }]
+      return [...prev, { baseId: "", managerId: "", usernameId: "" }]
     })
   }
 
@@ -81,19 +87,13 @@ export default function Form(props: FormProps) {
     )
   }
 
-  const modelsFor = useMemo(() => {
-    const map = new Map<string, ModelOption[]>()
-    for (const m of managers) map.set(m.id, m.models || [])
-    return map
-  }, [managers])
-
   const takenUsernames = useMemo(
-    () => buildTakenUsernames(managers, managerId, modelId, comparisons),
-    [managers, managerId, modelId, comparisons]
+    () => buildTakenUsernames(managersMap, baseId, managerId, usernameId, comparisons),
+    [managersMap, baseId, managerId, usernameId, comparisons]
   )
 
-  const canProgressFromStep1 = !!managerId && !!modelId
-  const canProgressFromStep2 = comparisons.length === 0 || comparisons.every(c => !!c.managerId && !!c.modelId)
+  const canProgressFromStep1 = !!baseId && !!managerId && !!usernameId
+  const canProgressFromStep2 = comparisons.length === 0 || comparisons.every(c => !!c.baseId && !!c.managerId && !!c.usernameId)
 
   const handleNext = () => {
     if (currentStep === 1 && canProgressFromStep1) setCurrentStep(2)
@@ -187,20 +187,41 @@ export default function Form(props: FormProps) {
             {currentStep === 1 && (
               <div className="space-y-4">
                 <div>
-                  <h3 className="text-lg font-semibold mb-1">Select Model</h3>
-                  <p className="text-sm text-muted-foreground mb-4">Choose a manager and model for analysis</p>
+                  <h3 className="text-lg font-semibold mb-1">Select Username</h3>
+                  <p className="text-sm text-muted-foreground mb-4">Choose a model (base), manager, and username for analysis</p>
+                </div>
+
+                <div>
+                  <label htmlFor="baseSelect" className="block text-sm font-semibold text-foreground mb-2">
+                    Model (Base)
+                  </label>
+                  <ComboBox value={baseId} onValueChange={setBaseId}>
+                    <ComboBoxTrigger
+                      id="baseSelect"
+                      className={`${s.csvinput} bg-background/40 border-border/60 focus:ring-2 focus:ring-primary/20`}
+                    >
+                      <ComboBoxValue placeholder="Select Model (Base)" />
+                    </ComboBoxTrigger>
+                    <ComboBoxContent>
+                      {baseConfigs.map(b => (
+                        <ComboBoxItem key={b.id} value={b.id}>
+                          {b.name}
+                        </ComboBoxItem>
+                      ))}
+                    </ComboBoxContent>
+                  </ComboBox>
                 </div>
 
                 <div>
                   <label htmlFor="managerA" className="block text-sm font-semibold text-foreground mb-2">
                     Manager
                   </label>
-                  <ComboBox value={managerId} onValueChange={setManagerId}>
+                  <ComboBox value={managerId} onValueChange={setManagerId} disabled={!baseId}>
                     <ComboBoxTrigger
                       id="managerA"
                       className={`${s.csvinput} bg-background/40 border-border/60 focus:ring-2 focus:ring-primary/20`}
                     >
-                      <ComboBoxValue placeholder="Select manager" />
+                      <ComboBoxValue placeholder={baseId ? "Select manager" : "Select model first"} />
                     </ComboBoxTrigger>
                     <ComboBoxContent>
                       {managers.map(m => (
@@ -213,28 +234,28 @@ export default function Form(props: FormProps) {
                 </div>
 
                 <div>
-                  <label htmlFor="modelA" className="block text-sm font-semibold text-foreground mb-2">
-                    Model
+                  <label htmlFor="usernameA" className="block text-sm font-semibold text-foreground mb-2">
+                    Username
                   </label>
-                  <ComboBox value={modelId} onValueChange={setModelId} disabled={!managerId}>
+                  <ComboBox value={usernameId} onValueChange={setUsernameId} disabled={!managerId}>
                     <ComboBoxTrigger
-                      id="modelA"
+                      id="usernameA"
                       className={`${s.csvinput} bg-background/40 border-border/60 focus:ring-2 focus:ring-primary/20`}
                     >
-                      <ComboBoxValue placeholder={managerId ? "Select model" : "Select manager first"} />
+                      <ComboBoxValue placeholder={managerId ? "Select username" : "Select manager first"} />
                     </ComboBoxTrigger>
                     <ComboBoxContent>
-                      {modelsA
-                        .filter(m => {
-                          const u = (m.username || "").trim()
-                          const selectedU = usernameForSelection(managers, managerId, modelId)
-                          if (!u) return true
-                          if (u === selectedU) return true
-                          return !takenUsernames.has(u)
+                      {usernamesA
+                        .filter(u => {
+                          const nameStr = (u.username || "").trim()
+                          const selectedU = usernameForSelection(managersMap, baseId, managerId, usernameId)
+                          if (!nameStr) return true
+                          if (nameStr === selectedU) return true
+                          return !takenUsernames.has(nameStr)
                         })
-                        .map(m => (
-                          <ComboBoxItem key={m.id} value={m.id}>
-                            {m.name}
+                        .map(u => (
+                          <ComboBoxItem key={u.id} value={u.id}>
+                            {u.name}
                           </ComboBoxItem>
                         ))}
                     </ComboBoxContent>
@@ -246,13 +267,13 @@ export default function Form(props: FormProps) {
             {currentStep === 2 && (
               <div className="space-y-4">
                 <div>
-                  <h3 className="text-lg font-semibold mb-1">Compare Models</h3>
-                  <p className="text-sm text-muted-foreground mb-4">Add up to {MAX_COMPARISONS} comparison models</p>
+                  <h3 className="text-lg font-semibold mb-1">Compare Usernames</h3>
+                  <p className="text-sm text-muted-foreground mb-4">Add up to {MAX_COMPARISONS} comparison usernames from any base</p>
                 </div>
 
                 {comparisons.length === 0 ? (
                   <div className="border border-dashed border-border/60 bg-muted/20 rounded-xl p-8 text-center">
-                    <p className="text-muted-foreground mb-4">Add comparison models to view results side by side</p>
+                    <p className="text-muted-foreground mb-4">Add comparison usernames to view results side by side</p>
                     <button type="button" className={s.btn2} onClick={addComparison} disabled={comparisons.length >= MAX_COMPARISONS}>
                       Add Comparison
                     </button>
@@ -260,8 +281,10 @@ export default function Form(props: FormProps) {
                 ) : (
                   <div className="space-y-4">
                     {comparisons.map((c, idx) => {
-                      const mgr = managers.find(m => m.id === c.managerId) || null
-                      const models = c.managerId ? (modelsFor.get(c.managerId) || []) : []
+                      const mgrsForComparison = c.baseId ? (managersMap[c.baseId] || []) : []
+                      const mgr = mgrsForComparison.find(m => m.id === c.managerId) || null
+                      const usernames = c.managerId ? (mgr?.usernames || []) : []
+
                       return (
                         <div key={idx} className="rounded-xl border border-border/60 bg-muted/20 p-4 space-y-4">
                           <div className="flex items-center justify-between">
@@ -276,23 +299,50 @@ export default function Form(props: FormProps) {
                           </div>
 
                           <div>
+                            <label htmlFor={`baseB_${idx}`} className="block text-sm font-semibold text-foreground mb-2">
+                              Model (Base)
+                            </label>
+                            <ComboBox
+                              value={c.baseId}
+                              onValueChange={(v) => {
+                                updateComparison(idx, { baseId: v, managerId: "", usernameId: "" })
+                              }}
+                            >
+                              <ComboBoxTrigger
+                                id={`baseB_${idx}`}
+                                className={`${s.csvinput} bg-background/40 border-border/60 focus:ring-2 focus:ring-primary/20`}
+                              >
+                                <ComboBoxValue placeholder="Select Model (Base)" />
+                              </ComboBoxTrigger>
+                              <ComboBoxContent>
+                                {baseConfigs.map(b => (
+                                  <ComboBoxItem key={b.id} value={b.id}>
+                                    {b.name}
+                                  </ComboBoxItem>
+                                ))}
+                              </ComboBoxContent>
+                            </ComboBox>
+                          </div>
+
+                          <div>
                             <label htmlFor={`managerB_${idx}`} className="block text-sm font-semibold text-foreground mb-2">
                               Manager
                             </label>
                             <ComboBox
                               value={c.managerId}
                               onValueChange={(v) => {
-                                updateComparison(idx, { managerId: v, modelId: "" })
+                                updateComparison(idx, { managerId: v, usernameId: "" })
                               }}
+                              disabled={!c.baseId}
                             >
                               <ComboBoxTrigger
                                 id={`managerB_${idx}`}
                                 className={`${s.csvinput} bg-background/40 border-border/60 focus:ring-2 focus:ring-primary/20`}
                               >
-                                <ComboBoxValue placeholder="Select manager" />
+                                <ComboBoxValue placeholder={c.baseId ? "Select manager" : "Select base first"} />
                               </ComboBoxTrigger>
                               <ComboBoxContent>
-                                {managers.map(m => (
+                                {mgrsForComparison.map(m => (
                                   <ComboBoxItem key={m.id} value={m.id}>
                                     {m.name}
                                   </ComboBoxItem>
@@ -302,32 +352,32 @@ export default function Form(props: FormProps) {
                           </div>
 
                           <div>
-                            <label htmlFor={`modelB_${idx}`} className="block text-sm font-semibold text-foreground mb-2">
-                              Model
+                            <label htmlFor={`usernameB_${idx}`} className="block text-sm font-semibold text-foreground mb-2">
+                              Username
                             </label>
                             <ComboBox
-                              value={c.modelId}
-                              onValueChange={(v) => updateComparison(idx, { modelId: v })}
+                              value={c.usernameId}
+                              onValueChange={(v) => updateComparison(idx, { usernameId: v })}
                               disabled={!c.managerId}
                             >
                               <ComboBoxTrigger
-                                id={`modelB_${idx}`}
+                                id={`usernameB_${idx}`}
                                 className={`${s.csvinput} bg-background/40 border-border/60 focus:ring-2 focus:ring-primary/20`}
                               >
-                                <ComboBoxValue placeholder={c.managerId ? "Select model" : "Select manager first"} />
+                                <ComboBoxValue placeholder={c.managerId ? "Select username" : "Select manager first"} />
                               </ComboBoxTrigger>
                               <ComboBoxContent>
-                                {models
-                                  .filter(m => {
-                                    const u = (m.username || "").trim()
-                                    const thisSelectedU = usernameForSelection(managers, c.managerId, c.modelId)
-                                    if (!u) return true
-                                    if (u === thisSelectedU) return true
-                                    return !takenUsernames.has(u)
+                                {usernames
+                                  .filter(u => {
+                                    const nameStr = (u.username || "").trim()
+                                    const thisSelectedU = usernameForSelection(managersMap, c.baseId, c.managerId, c.usernameId)
+                                    if (!nameStr) return true
+                                    if (nameStr === thisSelectedU) return true
+                                    return !takenUsernames.has(nameStr)
                                   })
-                                  .map(m => (
-                                    <ComboBoxItem key={m.id} value={m.id}>
-                                      {m.name}
+                                  .map(u => (
+                                    <ComboBoxItem key={u.id} value={u.id}>
+                                      {u.name}
                                     </ComboBoxItem>
                                   ))}
                               </ComboBoxContent>
@@ -335,7 +385,7 @@ export default function Form(props: FormProps) {
                           </div>
 
                           <div className="text-xs text-muted-foreground">
-                            Selected: {mgr?.name || "—"} → {models.find(m => m.id === c.modelId)?.name || "—"}
+                            Selected: {baseConfigs.find(b => b.id === c.baseId)?.name || "—"} → {mgr?.name || "—"} → {usernames.find(u => u.id === c.usernameId)?.name || "—"}
                           </div>
                         </div>
                       )
@@ -363,22 +413,23 @@ export default function Form(props: FormProps) {
 
                 <div className="space-y-3">
                   <div className="bg-muted/30 border border-border/60 rounded-xl p-4">
-                    <p className="text-xs font-medium text-muted-foreground uppercase mb-2">Primary Model</p>
+                    <p className="text-xs font-medium text-muted-foreground uppercase mb-2">Primary Username</p>
                     <p className="text-foreground font-medium">
-                      {mgrA?.name} → {selectedModelA?.name}
+                      {primaryBaseObj?.name || "—"} → {mgrA?.name || "—"} → {selectedUsernameA?.name || "—"}
                     </p>
                   </div>
 
                   {comparisons.length > 0 ? (
                     <div className="space-y-3">
                       {comparisons.map((c, idx) => {
-                        const mgr = managers.find(m => m.id === c.managerId)
-                        const mdl = mgr?.models?.find(mm => mm.id === c.modelId)
+                        const cBase = baseConfigs.find(b => b.id === c.baseId)
+                        const cMgr = managersMap[c.baseId]?.find(m => m.id === c.managerId)
+                        const cUsr = cMgr?.usernames?.find(u => u.id === c.usernameId)
                         return (
                           <div key={idx} className="bg-muted/30 border border-border/60 rounded-xl p-4">
                             <p className="text-xs font-medium text-muted-foreground uppercase mb-2">Comparison {idx + 1}</p>
                             <p className="text-foreground font-medium">
-                              {mgr?.name || "—"} → {mdl?.name || "—"}
+                              {cBase?.name || "—"} → {cMgr?.name || "—"} → {cUsr?.name || "—"}
                             </p>
                           </div>
                         )
@@ -386,7 +437,7 @@ export default function Form(props: FormProps) {
                     </div>
                   ) : (
                     <div className="bg-muted/20 border border-dashed border-border/60 rounded-xl p-4">
-                      <p className="text-sm text-muted-foreground italic">No comparison models selected</p>
+                      <p className="text-sm text-muted-foreground italic">No comparison usernames selected</p>
                     </div>
                   )}
                 </div>

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { verifyAdminToken } from "@/lib/auth"
 import { query } from "@/lib/db"
 import { parseAirtableLink } from "@/lib/airtable-link"
-import { fetchTableNameFromAirtable } from "@/lib/airtable-meta"
+import { fetchTableNameFromAirtable, fetchBaseNameFromAirtable } from "@/lib/airtable-meta"
 
 function getBearerToken(req: NextRequest) {
   const raw = req.headers.get("authorization") || ""
@@ -51,15 +51,17 @@ export async function POST(req: NextRequest) {
     const nextOrder = Number(maxRow?.[0]?.max_order ?? 0) + 1
 
     const tableName = await fetchTableNameFromAirtable(baseId, tableId)
+    const baseName = await fetchBaseNameFromAirtable(baseId)
 
     await query(
       `
-      INSERT INTO airtable_bases (base_id, table_id, view_id, table_name, sort_order)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO airtable_bases (base_id, table_id, view_id, table_name, base_name, sort_order)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
-        table_name = COALESCE(VALUES(table_name), table_name)
+        table_name = COALESCE(VALUES(table_name), table_name),
+        base_name = COALESCE(VALUES(base_name), base_name)
       `,
-      [baseId, tableId, viewId, tableName, nextOrder],
+      [baseId, tableId, viewId, tableName, baseName, nextOrder],
     )
 
     return NextResponse.json({ success: true })
@@ -109,5 +111,28 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: true })
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 })
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const missingBases = await query(
+      `SELECT id, base_id FROM airtable_bases WHERE base_name IS NULL`
+    );
+
+    for (const row of missingBases) {
+      const baseName = await fetchBaseNameFromAirtable(row.base_id);
+
+      if (baseName) {
+        await query(
+          `UPDATE airtable_bases SET base_name = ? WHERE id = ?`,
+          [baseName, row.id]
+        );
+      }
+    }
+
+    return NextResponse.json({ success: true, updatedCount: missingBases.length });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message }, { status: 500 });
   }
 }
