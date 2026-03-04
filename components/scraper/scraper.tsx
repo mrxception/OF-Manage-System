@@ -1,4 +1,3 @@
-// scraper.tsx
 "use client"
 
 import { useEffect, useRef, useState } from "react"
@@ -13,9 +12,9 @@ import LineChartSection from "./line-chart-section"
 import KPI from "./kpi-section"
 import PdfSection from "./pdf-section"
 
-type ModelOption = { id: string; name: string; username: string }
-type ManagerOption = { id: string; name: string; models: ModelOption[] }
-type CompareSlot = { managerId: string; modelId: string }
+type UsernameOption = { id: string; name: string; username: string }
+type ManagerOption = { id: string; name: string; usernames: UsernameOption[] }
+type CompareSlot = { baseId: string; managerId: string; usernameId: string }
 
 type TS = {
   upvotes: Array<{ date: string; [k: string]: number | string | null }>
@@ -32,12 +31,16 @@ type UserDataset = {
 }
 
 export default function Scraper() {
-  const [managers, setManagers] = useState<ManagerOption[]>([])
-  const [managersLoading, setManagersLoading] = useState(true)
+  const [baseConfigs, setBaseConfigs] = useState<{ id: string; name: string }[]>([])
+  const [basesLoading, setBasesLoading] = useState(true)
+  const [baseId, setBaseId] = useState("")
+
+  const [managersMap, setManagersMap] = useState<Record<string, ManagerOption[]>>({})
+  const [managersLoading, setManagersLoading] = useState(false)
   const [managersError, setManagersError] = useState<string | null>(null)
 
   const [managerId, setManagerId] = useState("")
-  const [modelId, setModelId] = useState("")
+  const [usernameId, setUsernameId] = useState("")
 
   const [comparisons, setComparisons] = useState<CompareSlot[]>([])
 
@@ -92,11 +95,12 @@ export default function Scraper() {
     }
   }
 
-  function getSelectedModel(mgrId: string, mdlId: string): ModelOption | null {
-    const mgr = managers.find((m) => m.id === mgrId)
+  function getSelectedUsername(bId: string, mgrId: string, usrId: string): UsernameOption | null {
+    const mgrs = managersMap[bId] || []
+    const mgr = mgrs.find((m) => m.id === mgrId)
     if (!mgr) return null
-    const mdl = mgr.models.find((mm) => mm.id === mdlId)
-    return mdl || null
+    const usr = mgr.usernames.find((mm) => mm.id === usrId)
+    return usr || null
   }
 
   useEffect(() => {
@@ -111,36 +115,62 @@ export default function Scraper() {
 
   useEffect(() => {
     let alive = true
+    setBasesLoading(true)
+    fetch("/api/scraper?type=bases")
+      .then(res => res.json())
+      .then(data => {
+        if (alive && data.bases) setBaseConfigs(data.bases)
+      })
+      .catch(() => {
+        if (alive) setStatus("Failed to load Airtable bases.")
+      })
+      .finally(() => {
+        if (alive) setBasesLoading(false)
+      })
+    return () => { alive = false }
+  }, [])
 
-    ;(async () => {
-      try {
-        setManagersLoading(true)
-        setManagersError(null)
+  useEffect(() => {
+    const neededBases = Array.from(new Set([baseId, ...comparisons.map((c) => c.baseId)].filter(Boolean)))
+    const toFetch = neededBases.filter((id) => !managersMap[id])
 
-        const r = await fetch("/api/scraper", { cache: "no-store" })
-        if (!r.ok) {
-          const j = await r.json().catch(() => null)
-          const reason = (j && typeof j.error === "string" && j.error) || `Failed to load managers (HTTP ${r.status})`
-          throw new Error(reason)
-        }
+    if (toFetch.length === 0) return
 
-        const j = await r.json()
-        const arr = Array.isArray(j?.managers) ? j.managers : []
-        if (alive) setManagers(arr)
-      } catch (e: any) {
-        if (alive) {
-          setManagers([])
-          setManagersError(e?.message || "Failed to load managers.")
-        }
-      } finally {
+    let alive = true
+    setManagersLoading(true)
+    setManagersError(null)
+
+    Promise.all(
+      toFetch.map((id) =>
+        fetch(`/api/scraper?configId=${id}`, { cache: "no-store" })
+          .then((res) => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`)
+            return res.json()
+          })
+          .then((data) => ({ id, managers: data.managers || [] }))
+      )
+    )
+      .then((results) => {
+        if (!alive) return
+        setManagersMap((prev) => {
+          const next = { ...prev }
+          results.forEach((r) => {
+            next[r.id] = r.managers
+          })
+          return next
+        })
+      })
+      .catch((e: any) => {
+        if (alive) setManagersError(e.message || "Failed to load managers.")
+      })
+      .finally(() => {
         if (alive) setManagersLoading(false)
-      }
-    })()
+      })
 
     return () => {
       alive = false
     }
-  }, [])
+  }, [baseId, comparisons, managersMap])
 
   async function readServerError(res: Response) {
     let reason = res.statusText
@@ -151,12 +181,12 @@ export default function Scraper() {
     return reason || `HTTP ${res.status}`
   }
 
-  async function loadSavedByUsername(token: string, username: string) {
+  async function loadSavedByUsername(token: string, username: string, bId: string) {
     const r = await fetch("/api/scraper/model", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ username }),
+      body: JSON.stringify({ username, baseId: bId }),
     })
 
     if (r.status === 404) return { ok: false as const, notFound: true as const, payload: null, cqs: null as string | null }
@@ -235,6 +265,12 @@ export default function Scraper() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
+    if (!baseId) {
+      setStatus("Please select a model (base).")
+      setMsg({ type: "err", text: "Please select a model (base)." })
+      return
+    }
+
     if (managersLoading) {
       setStatus("Loading managers…")
       setMsg({ type: "err", text: "Managers are still loading. Please wait." })
@@ -247,28 +283,35 @@ export default function Scraper() {
       return
     }
 
-    const primary = getSelectedModel(managerId, modelId)
+    const primary = getSelectedUsername(baseId, managerId, usernameId)
     if (!primary) {
-      setStatus("Please select a manager and model.")
-      setMsg({ type: "err", text: "Please select a manager and model." })
+      setStatus("Please select a manager and username.")
+      setMsg({ type: "err", text: "Please select a manager and username." })
       return
     }
 
-    const resolvedComparisons = comparisons.map((c) => getSelectedModel(c.managerId, c.modelId))
+    const resolvedComparisons = comparisons.map((c) => getSelectedUsername(c.baseId, c.managerId, c.usernameId))
     if (comparisons.length > 0 && resolvedComparisons.some((x) => !x)) {
-      setStatus("Please complete all comparison selections (manager + model).")
-      setMsg({ type: "err", text: "Please complete all comparison selections (manager + model)." })
+      setStatus("Please complete all comparison selections (base + manager + username).")
+      setMsg({ type: "err", text: "Please complete all comparison selections." })
       return
     }
 
     const frozen1 = (primary.username || "").trim()
     const frozenCompUsernames = resolvedComparisons
-      .filter((x): x is ModelOption => !!x)
+      .filter((x): x is UsernameOption => !!x)
       .map((x) => (x.username || "").trim())
       .filter(Boolean)
       .slice(0, 5)
 
     const frozenAll = [frozen1, ...frozenCompUsernames].filter(Boolean)
+
+    const frozenAllWithBase = [
+      { username: frozen1, baseId: baseId },
+      ...resolvedComparisons
+        .map((x, i) => (x ? { username: x.username.trim(), baseId: comparisons[i].baseId } : null))
+        .filter(Boolean)
+    ] as { username: string; baseId: string }[]
 
     setRunUsernames(frozenAll)
     setRunLimit(limit)
@@ -283,7 +326,7 @@ export default function Scraper() {
 
     setStatus("Loading saved results…")
 
-    const saved = await Promise.all(frozenAll.map((u) => loadSavedByUsername(token, u)))
+    const saved = await Promise.all(frozenAllWithBase.map((u) => loadSavedByUsername(token, u.username, u.baseId)))
 
     const allFound = saved.every((x) => x.ok && x.payload)
     if (allFound) {
@@ -448,26 +491,41 @@ export default function Scraper() {
         <div className="rounded-lg p-4 md:p-6">
           <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-2">Subreddit Performance Analysis (SPA)</h1>
           <p className="text-sm md:text-base text-muted-foreground mb-6">
-            Select a manager and model to analyze subreddit performance. Add up to 5 comparison models.
+            Select a model (base), manager, and username to analyze subreddit performance. Add up to 5 comparison usernames.
           </p>
 
-          <Form
-            progRef={progRef}
-            status={uiStatus}
-            busy={uiBusy}
-            onSubmit={onSubmit}
-            managers={managers}
-            managerId={managerId}
-            setManagerId={(v) => {
-              setManagerId(v)
-              setModelId("")
-            }}
-            modelId={modelId}
-            setModelId={setModelId}
-            comparisons={comparisons}
-            setComparisons={setComparisons}
-            s={s}
-          />
+          {basesLoading ? (
+            <div className="flex flex-col items-center justify-center p-12 space-y-4 border border-border/60 rounded-xl bg-card/80 backdrop-blur shadow-lg shadow-black/20">
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-sm font-medium text-muted-foreground">Fetching Airtable Bases...</p>
+            </div>
+          ) : (
+            <Form
+              progRef={progRef}
+              status={uiStatus}
+              busy={uiBusy}
+              onSubmit={onSubmit}
+              baseConfigs={baseConfigs}
+              baseId={baseId}
+              setBaseId={(v) => {
+                setBaseId(v)
+                setManagerId("")
+                setUsernameId("")
+              }}
+              managersMap={managersMap}
+              managers={managersMap[baseId] || []}
+              managerId={managerId}
+              setManagerId={(v) => {
+                setManagerId(v)
+                setUsernameId("")
+              }}
+              usernameId={usernameId}
+              setUsernameId={setUsernameId}
+              comparisons={comparisons}
+              setComparisons={setComparisons}
+              s={s}
+            />
+          )}
         </div>
 
         <KPI users={usersForSections} dateRange={dateRange} limit={runLimit} inclPER={false} />

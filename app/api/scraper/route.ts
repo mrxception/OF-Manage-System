@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { query } from "@/lib/db"
 
 export const runtime = "nodejs"
 
@@ -20,28 +21,51 @@ function slugify(s: string) {
     .replace(/^_+|_+$/g, "")
 }
 
-export async function GET() {
-  const apiKey = process.env.AIRTABLE_API_KEY
-  const baseId = process.env.AIRTABLE_BASE_ID
-  const tableId = process.env.AIRTABLE_TABLE_ID
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url)
+  const type = searchParams.get("type")
+  const configId = searchParams.get("configId")
 
-  const viewId = process.env.AIRTABLE_VIEW_ID || ""
-  const assignedField = process.env.AIRTABLE_ASSIGNED_VA_FIELD || "Assigned VA"
-  const usernameField = process.env.AIRTABLE_USERNAME_FIELD || "Username"
-
-  if (!apiKey || !baseId || !tableId) {
-    return NextResponse.json(
-      { error: "Missing Airtable env vars. Required: AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_TABLE_ID" },
-      { status: 500 }
-    )
+  if (type === "bases") {
+    try {
+      const bases = await query("SELECT id, base_name as name FROM airtable_bases ORDER BY sort_order ASC")
+      return NextResponse.json({ bases })
+    } catch (err: any) {
+      return NextResponse.json({ error: "Failed to fetch bases", details: err?.message }, { status: 500 })
+    }
   }
 
-  const urlBase = `https://api.airtable.com/v0/${encodeURIComponent(baseId)}/${encodeURIComponent(tableId)}`
-
-  const all: AirtableRecord[] = []
-  let offset = ""
+  if (!configId) {
+    return NextResponse.json({ error: "Missing configId parameter." }, { status: 400 })
+  }
 
   try {
+    const configRows = await query("SELECT * FROM airtable_bases WHERE id = ?", [configId]) as any[]
+    
+    if (!configRows || configRows.length === 0) {
+      return NextResponse.json({ error: "Configuration not found in database." }, { status: 404 })
+    }
+
+    const config = configRows[0]
+    const apiKey = process.env.AIRTABLE_API_KEY
+    const baseId = config.base_id
+    const tableId = config.table_id
+    const viewId = config.view_id
+    const assignedField = process.env.AIRTABLE_ASSIGNED_VA_FIELD || "Assigned VA"
+    const usernameField = process.env.AIRTABLE_USERNAME_FIELD || "Username"
+
+    if (!apiKey || !baseId || !tableId) {
+      return NextResponse.json(
+        { error: "Missing Airtable credentials or table configuration." },
+        { status: 500 }
+      )
+    }
+
+    const urlBase = `https://api.airtable.com/v0/${encodeURIComponent(baseId)}/${encodeURIComponent(tableId)}`
+
+    const all: AirtableRecord[] = []
+    let offset = ""
+
     while (true) {
       const u = new URL(urlBase)
       u.searchParams.set("pageSize", "100")
@@ -74,14 +98,14 @@ export async function GET() {
       offset = j.offset
     }
 
-    const map = new Map<string, { id: string; name: string; models: { id: string; name: string; username: string }[] }>()
+    const map = new Map<string, { id: string; name: string; usernames: { id: string; name: string; username: string }[] }>()
 
     for (const rec of all) {
       const fields = rec.fields || {}
       const assignedRaw = fields[assignedField]
       const usernameRaw = fields[usernameField]
 
-      const usernames: string[] =
+      const usernamesArr: string[] =
         typeof usernameRaw === "string"
           ? [usernameRaw]
           : Array.isArray(usernameRaw)
@@ -95,21 +119,21 @@ export async function GET() {
             ? assignedRaw.filter((x) => typeof x === "string")
             : []
 
-      if (managers.length === 0 || usernames.length === 0) continue
+      if (managers.length === 0 || usernamesArr.length === 0) continue
 
       for (const mgrName of managers) {
         const mgr = mgrName.trim()
         if (!mgr) continue
 
         const mgrId = `va_${slugify(mgr)}`
-        const existing = map.get(mgrId) || { id: mgrId, name: mgr, models: [] }
+        const existing = map.get(mgrId) || { id: mgrId, name: mgr, usernames: [] }
 
-        for (const u of usernames) {
+        for (const u of usernamesArr) {
           const un = u.trim()
           if (!un) continue
-          const modelId = `u_${slugify(un)}`
-          if (!existing.models.some((m) => m.id === modelId)) {
-            existing.models.push({ id: modelId, name: un, username: un })
+          const usernameId = `u_${slugify(un)}`
+          if (!existing.usernames.some((m) => m.id === usernameId)) {
+            existing.usernames.push({ id: usernameId, name: un, username: un })
           }
         }
 
@@ -117,15 +141,15 @@ export async function GET() {
       }
     }
 
-    const managers = Array.from(map.values())
+    const formattedManagers = Array.from(map.values())
       .map((m) => ({
         ...m,
-        models: m.models.slice().sort((a, b) => a.name.localeCompare(b.name)),
+        usernames: m.usernames.slice().sort((a, b) => a.name.localeCompare(b.name)),
       }))
       .sort((a, b) => a.name.localeCompare(b.name))
 
     return NextResponse.json({
-      managers,
+      managers: formattedManagers,
       meta: {
         usedView: !!viewId,
         assignedField,

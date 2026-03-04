@@ -27,12 +27,22 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => null)
     const username = String(body?.username || "").trim()
+    const baseId = body?.baseId
+
     if (!username) return NextResponse.json({ error: "Username required" }, { status: 400 })
 
-    const row = await queryOne<{ payload: any; cqs: string }>(
-      "SELECT payload, cqs FROM saved_scrapes WHERE username = ? ORDER BY scraped_at DESC LIMIT 1",
-      [username]
-    )
+    let row;
+    if (baseId) {
+      row = await queryOne<{ payload: any; cqs: string }>(
+        "SELECT payload, cqs FROM saved_scrapes WHERE username = ? AND airtable_base_id = ? ORDER BY scraped_at DESC LIMIT 1",
+        [username, baseId]
+      )
+    } else {
+      row = await queryOne<{ payload: any; cqs: string }>(
+        "SELECT payload, cqs FROM saved_scrapes WHERE username = ? ORDER BY scraped_at DESC LIMIT 1",
+        [username]
+      )
+    }
 
     if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
